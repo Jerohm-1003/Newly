@@ -22,6 +22,7 @@ import NewlyUinfo from "./newlyUinfo";
 import ProfileSetupScreen from "./ProfileSetupScreen";
 import FurnitureUploadScreen from "./UploadF";
 import AdminDashboardScreen from "./adminDashboard";
+import OpenAR from "./OpenAR";
 
 export type Screen =
   | "loading"
@@ -50,7 +51,8 @@ export type Screen =
   | "intro"
   | "profileSetup"
   | "UploadF"
-  | "adminDashb";
+  | "adminDashb"
+  | "OpenAR";
 
 export interface CartItem {
   id: string;
@@ -166,6 +168,9 @@ const App = () => {
         goToScreen={goToScreen}
       />
     );
+
+  if (screen === "OpenAR")
+    return <OpenAR goBack={() => setScreen("home")} goToScreen={goToScreen} />;
 
   if (screen === "lreg") return <LRegScreen goToScreen={goToScreen} />;
 

@@ -80,6 +80,12 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
             >
               <Text style={styles.menuText}>Upload Furniture</Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => goToScreen?.("OpenAR")}
+            >
+              <Text style={styles.menuText}>TESTER</Text>
+            </TouchableOpacity>
 
             <View style={styles.drawerBottomImage}>
               <Image

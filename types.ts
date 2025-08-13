@@ -23,6 +23,7 @@ export type Screen =
   | "profile"
   | "profileSetup"
   | "UploadF"
-  
+  | "OpenAR"
+
   
 
