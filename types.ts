@@ -24,6 +24,12 @@ export type Screen =
   | "profileSetup"
   | "UploadF"
   | "OpenAR"
+  | "productDetails"
+  | "inbox"
+  | "SellerPart"
+  | "settings"
 
-  
+
+
+
 

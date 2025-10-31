@@ -3,7 +3,6 @@ import "../firebase/firebaseConfig";
 import { auth, firestore } from "../firebase/firebaseConfig";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 
-import LoadingScreen from "./LoadingScreen";
 import CartScreen from "./CartScreen";
 import HomeScreen from "./Home";
 import FurnitureScreen from "./FurnitureScreen";
@@ -13,16 +12,23 @@ import DRoomScreen from "./Dr";
 import ShopfurScreen from "./FURARd";
 import BRoomtScreen from "./BRFt";
 import DRoomtScreen from "./Drt";
-import ARScene from "./ARScene";
 import DRScreen from "./Dr";
 import BRScreen from "./BRf";
 import LRegScreen from "./lreg";
 import Profile from "./Profile";
+import Inbox from "./inbox";
 import NewlyUinfo from "./newlyUinfo";
 import ProfileSetupScreen from "./ProfileSetupScreen";
 import FurnitureUploadScreen from "./UploadF";
 import AdminDashboardScreen from "./adminDashboard";
 import OpenAR from "./OpenAR";
+import IntroFlow from "./newlyUinfo";
+import ProductDetails from "./ProductDetails";
+import SellerPart from "./SellerPart";
+import SettingsProfile from "./ProfileSettings";
+import OrderHistoryScreen from "./OrderHistoryScreen";
+import SettingsScreen from "./ProfileSettings";
+import ProfileSettings from "./ProfileSettings";
 
 export type Screen =
   | "loading"
@@ -52,7 +58,11 @@ export type Screen =
   | "profileSetup"
   | "UploadF"
   | "adminDashb"
-  | "OpenAR";
+  | "OpenAR"
+  | "productDetails"
+  | "SellerPart"
+  | "orderHistory"
+  | "settings";
 
 export interface CartItem {
   id: string;
@@ -62,7 +72,7 @@ export interface CartItem {
 }
 
 const App = () => {
-  const [screen, setScreen] = useState<Screen>("loading");
+  const [screen, setScreen] = useState<Screen>("intro");
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [arUri, setArUri] = useState<string>("");
   const [showIntro, setShowIntro] = useState(true);
@@ -146,20 +156,20 @@ const App = () => {
     setScreen(target);
   };
 
-  if (screen === "loading")
-    return (
-      <LoadingScreen
-        onDone={() => {
-          setScreen("intro");
-        }}
-      />
-    );
-
   if (screen === "adminDashb")
     return <AdminDashboardScreen goToScreen={goToScreen} />;
 
-  if (screen === "intro")
-    return <NewlyUinfo onFinish={() => setScreen("home")} />;
+  if (screen === "intro") return <IntroFlow onDone={() => setScreen("home")} />;
+
+  if (screen === "productDetails" && screenParams?.product) {
+    return (
+      <ProductDetails
+        product={screenParams.product}
+        goToScreen={goToScreen}
+        addToCart={addToCart}
+      />
+    );
+  }
 
   if (screen === "UploadF")
     return (
@@ -200,6 +210,17 @@ const App = () => {
       />
     );
 
+  const decrementItem = (id: string) => {
+    setCartItems((prevItems) =>
+      prevItems.map((item) =>
+        item.id === id && item.quantity > 1
+          ? { ...item, quantity: item.quantity - 1 }
+          : item
+      )
+    );
+  };
+  const clearCart = () => setCartItems([]);
+
   const currentUser = auth.currentUser;
 
   if (screen === "cart")
@@ -209,13 +230,20 @@ const App = () => {
         cartItems={cartItems}
         onBack={() => setScreen("home")}
         onIncrement={incrementItem}
+        onDecrement={decrementItem} // 👈 missing piece
         onRemove={removeItem}
         total={totalPrice()}
+        onClearCart={clearCart} // <-- pass it
       />
     );
 
-  if (screen === "ar")
-    return <ARScene uri={arUri} goBack={() => setScreen("home")} />;
+  if (screen === "orderHistory")
+    return (
+      <OrderHistoryScreen
+        userId={currentUser ? currentUser.uid : "guest"}
+        goBack={() => setScreen("home")}
+      />
+    );
 
   if (screen === "furniture")
     return (
@@ -252,6 +280,11 @@ const App = () => {
       />
     );
 
+  if (screen === "SellerPart")
+    return (
+      <SellerPart goBack={() => setScreen("home")} goToScreen={goToScreen} />
+    );
+
   if (["Desks", "Wardrobe", "Bed"].includes(screen))
     return (
       <BRScreen
@@ -273,7 +306,12 @@ const App = () => {
   if (screen === "profile")
     return <Profile goToScreen={goToScreen} goBack={() => setScreen("home")} />;
 
-  if (screen === "inbox") return <HomeScreen goToScreen={goToScreen} />;
+  if (screen === "inbox") {
+    return <Inbox goBack={() => setScreen("home")} />; // ✅ gamit Inbox, hindi HomeScreen
+  }
+  if (screen === "settings") {
+    return <SettingsScreen goBack={() => setScreen("home")} />; // ✅ gamit Inbox, hindi HomeScreen
+  }
 
   return null;
 };

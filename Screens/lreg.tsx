@@ -12,6 +12,7 @@ import {
   signInWithEmailAndPassword,
   GoogleAuthProvider,
   signInWithCredential,
+  sendPasswordResetEmail,
 } from "firebase/auth";
 import { GoogleSignin } from "@react-native-google-signin/google-signin";
 import { auth, firestore } from "../firebase/firebaseConfig";
@@ -34,19 +35,24 @@ const LRegScreen: React.FC<Props> = ({ goToScreen }) => {
   useEffect(() => {
     GoogleSignin.configure({
       webClientId:
-        "63848347199-7h2faq8cgudfvd4iv9bggeon73egoj8h.apps.googleusercontent.com",
+        "980572185774-4c22bkmqm894s8qeql9gu0ro25q6usgu.apps.googleusercontent.com",
     });
   }, []);
 
+  // ✅ Password validator
   const validatePassword = (password: string) => {
     return {
       length: password.length >= 8,
       number: /\d/.test(password),
       special: /[!@#$%^&*]/.test(password),
       upperLower: /(?=.*[a-z])(?=.*[A-Z])/.test(password),
+      noSpaces: !/\s/.test(password),
+      noRepeats: !/(.)\1{2,}/.test(password),
+      noSequence: !/(1234|abcd|qwerty)/i.test(password),
     };
   };
 
+  // ✅ Email/password submit
   const handleSubmit = async () => {
     if (!form.email || !form.password) {
       Alert.alert("Error", "Please fill in all fields.");
@@ -56,7 +62,8 @@ const LRegScreen: React.FC<Props> = ({ goToScreen }) => {
     try {
       if (isRegister) {
         const reqs = validatePassword(form.password);
-        if (!reqs.length || !reqs.number || !reqs.special || !reqs.upperLower) {
+        const allPassed = Object.values(reqs).every((v) => v);
+        if (!allPassed) {
           Alert.alert("Error", "Password does not meet requirements.");
           return;
         }
@@ -94,14 +101,11 @@ const LRegScreen: React.FC<Props> = ({ goToScreen }) => {
           return;
         }
 
-        const userData = userDoc.data();
-        const role = userData?.role?.toLowerCase?.() || "user";
-
-        // console.log("Logged in as role:", role);
+        const role = userDoc.data()?.role?.toLowerCase?.() || "user";
 
         Alert.alert("Success", "Logged in.");
         if (role === "admin") {
-          goToScreen("adminDashb"); // ✅ fixed spelling
+          goToScreen("adminDashb");
         } else {
           goToScreen("home");
         }
@@ -115,26 +119,60 @@ const LRegScreen: React.FC<Props> = ({ goToScreen }) => {
     try {
       await GoogleSignin.hasPlayServices();
       const userInfo = await GoogleSignin.signIn();
-      const { idToken } = await GoogleSignin.getTokens();
-      const googleCredential = GoogleAuthProvider.credential(idToken);
+      const { idToken, accessToken } = await GoogleSignin.getTokens();
 
+      if (!idToken) {
+        Alert.alert("Google Sign-In Error", "No ID token returned.");
+        return;
+      }
+
+      const googleCredential = GoogleAuthProvider.credential(
+        idToken,
+        accessToken
+      );
       const userCredential = await signInWithCredential(auth, googleCredential);
       const user = userCredential.user;
 
-      const userDoc = await getDoc(doc(firestore, "users", user.uid));
-      const userData = userDoc.data();
-      const role = userData?.role?.toLowerCase?.() || "user";
+      const userDocRef = doc(firestore, "users", user.uid);
+      const userDoc = await getDoc(userDocRef);
 
-      // console.log("Google login as role:", role);
+      if (!userDoc.exists()) {
+        await setDoc(userDocRef, {
+          username: user.displayName || "New User",
+          email: user.email,
+          role: "user",
+        });
+      }
+
+      const role =
+        (userDoc.exists() ? userDoc.data()?.role : "user")?.toLowerCase() ||
+        "user";
 
       Alert.alert("Success", "Logged in with Google.");
       if (role === "admin") {
-        goToScreen("adminDashb"); // ✅ fixed spelling
+        goToScreen("adminDashb");
       } else {
         goToScreen("home");
       }
     } catch (error: any) {
       Alert.alert("Google Sign-In Error", error.message);
+    }
+  };
+
+  // ✅ Forgot password
+  const handleForgotPassword = async () => {
+    if (!form.email) {
+      Alert.alert("Error", "Please enter your email first.");
+      return;
+    }
+    try {
+      await sendPasswordResetEmail(auth, form.email);
+      Alert.alert(
+        "Email Sent",
+        "A password reset link has been sent to your email."
+      );
+    } catch (error: any) {
+      Alert.alert("Reset Error", error.message);
     }
   };
 
@@ -178,6 +216,32 @@ const LRegScreen: React.FC<Props> = ({ goToScreen }) => {
         onChangeText={(text) => setForm({ ...form, password: text })}
       />
 
+      {isRegister && form.password.length > 0 && (
+        <View style={styles.reqs}>
+          {Object.entries(validatePassword(form.password)).map(([key, met]) => (
+            <Text
+              key={key}
+              style={[styles.requirement, { color: met ? "green" : "red" }]}
+            >
+              {met ? "✔ " : "✘ "}
+              {key === "upperLower"
+                ? "Must contain uppercase & lowercase"
+                : key === "length"
+                ? "At least 8 characters"
+                : key === "number"
+                ? "At least 1 number"
+                : key === "special"
+                ? "At least 1 special character (!@#$%^&*)"
+                : key === "noSpaces"
+                ? "No spaces allowed"
+                : key === "noRepeats"
+                ? "No 3+ repeating characters"
+                : "No common sequences (1234, abcd, qwerty)"}
+            </Text>
+          ))}
+        </View>
+      )}
+
       {isRegister && (
         <>
           <Text style={styles.label}>Confirm Password</Text>
@@ -188,16 +252,6 @@ const LRegScreen: React.FC<Props> = ({ goToScreen }) => {
             value={form.confirm}
             onChangeText={(text) => setForm({ ...form, confirm: text })}
           />
-          <View style={styles.reqs}>
-            {Object.entries(validatePassword(form.password)).map(([key, met]) =>
-              !met ? (
-                <Text key={key} style={styles.requirement}>
-                  - Must contain{" "}
-                  {key === "upperLower" ? "uppercase & lowercase" : key}
-                </Text>
-              ) : null
-            )}
-          </View>
         </>
       )}
 
@@ -206,6 +260,12 @@ const LRegScreen: React.FC<Props> = ({ goToScreen }) => {
           {isRegister ? "Register" : "Login"}
         </Text>
       </TouchableOpacity>
+
+      {!isRegister && (
+        <TouchableOpacity onPress={handleForgotPassword}>
+          <Text style={styles.forgotText}>Forgot Password?</Text>
+        </TouchableOpacity>
+      )}
 
       <TouchableOpacity
         style={[styles.button, { backgroundColor: "#db4437" }]}
@@ -230,68 +290,105 @@ export default LRegScreen;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 20,
-    paddingTop: 80,
-    justifyContent: "center",
-    backgroundColor: "#F5F5DC",
+    padding: 25,
+    paddingTop: 90,
+    backgroundColor: "#F4EDE3", // warm cream
   },
+
   title: {
-    fontSize: 28,
-    fontWeight: "bold",
+    fontSize: 30,
+    fontWeight: "800",
+    color: "#4B3526", // rich brown
     textAlign: "center",
-    marginBottom: 20,
-    color: "#3E2723",
+    marginBottom: 30,
+    letterSpacing: 1,
   },
-  input: {
-    borderWidth: 1,
-    borderColor: "#999",
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 10,
-    fontSize: 16,
-    color: "#3E2723",
-    backgroundColor: "#fff",
-  },
-  button: {
-    backgroundColor: "#5D4037",
-    padding: 15,
-    borderRadius: 10,
-    marginTop: 10,
-  },
-  buttonText: {
-    color: "#fff",
-    fontSize: 16,
-    textAlign: "center",
-  },
-  toggleText: {
-    marginTop: 15,
-    textAlign: "center",
-    color: "#1E90FF",
-    textDecorationLine: "underline",
-  },
-  requirement: {
-    color: "red",
-    fontSize: 12,
-  },
-  reqs: {
-    marginTop: 5,
-    paddingLeft: 5,
-  },
-  backButton: {
-    position: "absolute",
-    top: 40,
-    left: 20,
-    padding: 5,
-  },
-  backButtonText: {
-    fontSize: 16,
-    color: "#1E90FF",
-  },
+
   label: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#3E2723",
-    marginBottom: 4,
-    marginTop: 12,
+    color: "#4B3526",
+    marginBottom: 6,
+    marginTop: 10,
+  },
+
+  input: {
+    backgroundColor: "rgba(255,255,255,0.9)",
+    borderWidth: 1,
+    borderColor: "rgba(75, 53, 38, 0.25)",
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    fontSize: 15,
+    color: "#3E2A1C",
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+
+  button: {
+    backgroundColor: "rgba(75, 53, 38, 0.85)", // soft brown with transparency
+    borderRadius: 12,
+    paddingVertical: 13,
+    marginTop: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+
+  buttonText: {
+    color: "#FFF8F0",
+    fontSize: 16,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+  },
+
+  toggleText: {
+    marginTop: 20,
+    textAlign: "center",
+    color: "#6E4C2E",
+    fontWeight: "600",
+    textDecorationLine: "underline",
+  },
+
+  forgotText: {
+    marginTop: 8,
+    textAlign: "center",
+    color: "#8B5E3C",
+    fontWeight: "500",
+    textDecorationLine: "underline",
+  },
+
+  backButton: {
+    position: "absolute",
+    top: 50,
+    left: 25,
+    padding: 4, // small touch area, but no background shape
+  },
+
+  backButtonText: {
+    fontSize: 30,
+    color: "#4B3526", // deep brown to match theme
+    fontWeight: "bold",
+  },
+
+  reqs: {
+    backgroundColor: "rgba(255,255,255,0.7)",
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    marginBottom: 10,
+    marginTop: 5,
+    borderWidth: 1,
+    borderColor: "rgba(75,53,38,0.2)",
+  },
+
+  requirement: {
+    fontSize: 12,
+    fontWeight: "500",
   },
 });

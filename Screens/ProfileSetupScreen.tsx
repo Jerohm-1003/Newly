@@ -1,5 +1,13 @@
 import React, { useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView } from "react-native";
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  Alert,
+  ScrollView,
+} from "react-native";
 import { doc, setDoc } from "firebase/firestore";
 import { firestore } from "../firebase/firebaseConfig";
 import { Screen } from "./App";
@@ -24,9 +32,17 @@ const ProfileSetupScreen: React.FC<Props> = ({ goToScreen, route }) => {
     "https://static.vecteezy.com/system/resources/previews/009/292/244/non_2x/default-avatar-icon-of-social-media-user-vector.jpg";
 
   const handleSave = async () => {
-    const { username, fullName, birthday, gender, phoneNumber, address } = profile;
+    const { username, fullName, birthday, gender, phoneNumber, address } =
+      profile;
 
-    if (!username || !fullName || !birthday || !gender || !phoneNumber || !address) {
+    if (
+      !username ||
+      !fullName ||
+      !birthday ||
+      !gender ||
+      !phoneNumber ||
+      !address
+    ) {
       Alert.alert("Error", "Please fill in all fields.");
       return;
     }

@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from "react";
 import {
   View,
@@ -20,84 +19,87 @@ const DRoomtScreen: React.FC<LivingRoomScreenProps> = ({
   goToScreen,
   goBack,
 }) => {
-     const screenWidth = Dimensions.get("window").width;
-      const [menuVisible, setMenuVisible] = useState(false);
-      const slideAnim = useRef(new Animated.Value(-screenWidth)).current;
-      const toggleMenu = () => {
-        if (menuVisible) {
-          Animated.timing(slideAnim, {
-            toValue: -screenWidth,
-            duration: 300,
-            useNativeDriver: true,
-          }).start(() => setMenuVisible(false));
-        } else {
-          setMenuVisible(true);
-          Animated.timing(slideAnim, {
-            toValue: 0,
-            duration: 300,
-            useNativeDriver: true,
-          }).start();
-        }
-      };
+  const screenWidth = Dimensions.get("window").width;
+  const [menuVisible, setMenuVisible] = useState(false);
+  const slideAnim = useRef(new Animated.Value(-screenWidth)).current;
+  const toggleMenu = () => {
+    if (menuVisible) {
+      Animated.timing(slideAnim, {
+        toValue: -screenWidth,
+        duration: 300,
+        useNativeDriver: true,
+      }).start(() => setMenuVisible(false));
+    } else {
+      setMenuVisible(true);
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    }
+  };
   return (
     <View style={styles.container}>
-             {/* Sidebar Drawer Menu */}
-             {menuVisible && (
-               <TouchableOpacity
-                 style={styles.backdrop}
-                 activeOpacity={1}
-                 onPress={toggleMenu}
-               >
-                 <Animated.View
-                   style={[styles.drawer, { transform: [{ translateX: slideAnim }] }]}
-                 >
-                   <TouchableOpacity style={styles.backButton} onPress={toggleMenu}>
-                     <Text style={styles.backButtonText}>←</Text>
-                   </TouchableOpacity>
-       
-                   <TouchableOpacity
-                     style={styles.menuItem}
-                     onPress={() => goToScreen?.("furniture")}
-                   >
-                     <Text style={styles.menuText}>Furniture</Text>
-                   </TouchableOpacity>
-       
-                   <View style={styles.menuItem}>
-                     <Text style={styles.menuText}>Home Office</Text>
-                   </View>
-                   <View style={styles.menuItem}>
-                     <Text style={styles.menuText}>Home Decoration</Text>
-                   </View>
-                   <View style={styles.menuItem}>
-                     <Text style={styles.menuText}>Help</Text>
-                   </View>
-       
-                   <View style={styles.drawerBottomImage}>
-                     <Image
-                       source={require("../assets/cart_icon.png")}
-                       style={styles.sfImage}
-                       resizeMode="contain"
-                     />
-                   </View>
-                 </Animated.View>
-               </TouchableOpacity>
-             )}
- 
-           {/* Header */}
-           <View style={styles.header}>
-             <TouchableOpacity onPress={toggleMenu}>
-               <Text style={styles.headerIcon}>☰</Text>
-             </TouchableOpacity>
-             <Image
-               source={require("../assets/cart_icon.png")}
-               style={styles.logoImage}
-               resizeMode="contain"
-             />
-             <Text style={styles.headerIcon}>⚙️</Text>
-           </View>
+      {/* Sidebar Drawer Menu */}
+      {menuVisible && (
+        <TouchableOpacity
+          style={styles.backdrop}
+          activeOpacity={1}
+          onPress={toggleMenu}
+        >
+          <Animated.View
+            style={[styles.drawer, { transform: [{ translateX: slideAnim }] }]}
+          >
+            <TouchableOpacity style={styles.backButton} onPress={toggleMenu}>
+              <Text style={styles.backButtonText}>←</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => goToScreen?.("furniture")}
+            >
+              <Text style={styles.menuText}>Furniture</Text>
+            </TouchableOpacity>
+
+            <View style={styles.menuItem}>
+              <Text style={styles.menuText}>Home Office</Text>
+            </View>
+            <View style={styles.menuItem}>
+              <Text style={styles.menuText}>Home Decoration</Text>
+            </View>
+            <View style={styles.menuItem}>
+              <Text style={styles.menuText}>Help</Text>
+            </View>
+
+            <View style={styles.drawerBottomImage}>
+              <Image
+                source={require("../assets/cart_icon.png")}
+                style={styles.sfImage}
+                resizeMode="contain"
+              />
+            </View>
+          </Animated.View>
+        </TouchableOpacity>
+      )}
+
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={toggleMenu}>
+          <Text style={styles.headerIcon}>☰</Text>
+        </TouchableOpacity>
+        <Image
+          source={require("../assets/cart_icon.png")}
+          style={styles.logoImage}
+          resizeMode="contain"
+        />
+        <Text style={styles.headerIcon}>⚙️</Text>
+      </View>
 
       <View style={styles.content}>
-        <TouchableOpacity style={styles.backButton} onPress={() => goToScreen("home")}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => goToScreen("home")}
+        >
           <Text style={styles.backButtonText}>←</Text>
         </TouchableOpacity>
         <Text style={styles.title}>Dining Room Furniture</Text>
