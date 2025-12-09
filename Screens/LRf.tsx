@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef } from "react";
 import {
   View,
   Text,
@@ -7,6 +7,8 @@ import {
   Image,
   Animated,
   Dimensions,
+  ScrollView,
+  StatusBar,
 } from "react-native";
 import type { Screen } from "../types";
 
@@ -22,6 +24,19 @@ const LivingRoomScreen: React.FC<LivingRoomScreenProps> = ({
   const screenWidth = Dimensions.get("window").width;
   const [menuVisible, setMenuVisible] = useState(false);
   const slideAnim = useRef(new Animated.Value(-screenWidth)).current;
+
+  // Color Palette - Theme
+  const colors = {
+    primary: "#2D2416",
+    secondary: "#8B7355",
+    accent: "#D4A574",
+    background: "#FAF8F5",
+    cardBg: "#FFFFFF",
+    textPrimary: "#1A1A1A",
+    textSecondary: "#6B6B6B",
+    border: "#E8E8E8",
+  };
+
   const toggleMenu = () => {
     if (menuVisible) {
       Animated.timing(slideAnim, {
@@ -38,9 +53,20 @@ const LivingRoomScreen: React.FC<LivingRoomScreenProps> = ({
       }).start();
     }
   };
+
+  const furnitureTypes = [
+    { id: "chair", icon: "🪑", label: "Chair", screen: "Chair" },
+    { id: "sofa", icon: "🛋️", label: "Sofa", screen: "Sofa" },
+    { id: "tvstand", icon: "📺", label: "TV Stand", screen: "TVStand" },
+    { id: "shelves", icon: "📚", label: "Shelves", screen: "Shelves" },
+    { id: "table", icon: "🟤", label: "Table", screen: "Table" },
+  ];
+
   return (
-    <View style={styles.container}>
-      {/* Sidebar Drawer Menu */}
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <StatusBar barStyle="light-content" backgroundColor={colors.primary} />
+
+      {/* Modern Sidebar Drawer (matching Home.tsx) */}
       {menuVisible && (
         <TouchableOpacity
           style={styles.backdrop}
@@ -48,192 +74,252 @@ const LivingRoomScreen: React.FC<LivingRoomScreenProps> = ({
           onPress={toggleMenu}
         >
           <Animated.View
-            style={[styles.drawer, { transform: [{ translateX: slideAnim }] }]}
+            style={[
+              styles.drawer,
+              {
+                transform: [{ translateX: slideAnim }],
+                backgroundColor: colors.cardBg,
+              },
+            ]}
           >
-            <TouchableOpacity style={styles.backButton} onPress={toggleMenu}>
-              <Text style={styles.backButtonText}>←</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.menuItem}
-              onPress={() => goToScreen?.("furniture")}
-            >
-              <Text style={styles.menuText}>Furniture</Text>
-            </TouchableOpacity>
-
-            <View style={styles.menuItem}>
-              <Text style={styles.menuText}>Home Office</Text>
-            </View>
-            <View style={styles.menuItem}>
-              <Text style={styles.menuText}>Home Decoration</Text>
-            </View>
-            <View style={styles.menuItem}>
-              <Text style={styles.menuText}>Help</Text>
+            <View style={styles.drawerHeader}>
+              <TouchableOpacity style={styles.closeButton} onPress={toggleMenu}>
+                <Text
+                  style={[
+                    styles.closeButtonText,
+                    { color: colors.textPrimary },
+                  ]}
+                >
+                  ✕
+                </Text>
+              </TouchableOpacity>
+              <Text style={[styles.drawerTitle, { color: colors.textPrimary }]}>
+                Menu
+              </Text>
             </View>
 
-            <View style={styles.drawerBottomImage}>
+            <View style={styles.drawerContent}>
+              <TouchableOpacity
+                style={styles.drawerItem}
+                onPress={() => {
+                  goToScreen("furniture");
+                  toggleMenu();
+                }}
+              >
+                <Text style={styles.drawerItemIcon}>🪑</Text>
+                <Text
+                  style={[styles.drawerItemText, { color: colors.textPrimary }]}
+                >
+                  All Furniture
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.drawerItem}
+                onPress={() => {
+                  goToScreen("home");
+                  toggleMenu();
+                }}
+              >
+                <Text style={styles.drawerItemIcon}>🏠</Text>
+                <Text
+                  style={[styles.drawerItemText, { color: colors.textPrimary }]}
+                >
+                  Home
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.drawerItem}>
+                <Text style={styles.drawerItemIcon}>❓</Text>
+                <Text
+                  style={[styles.drawerItemText, { color: colors.textPrimary }]}
+                >
+                  Help & Support
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.drawerFooter}>
               <Image
                 source={require("../assets/cart_icon.png")}
-                style={styles.sfImage}
+                style={styles.drawerLogo}
                 resizeMode="contain"
               />
+              <Text
+                style={[
+                  styles.drawerFooterText,
+                  { color: colors.textSecondary },
+                ]}
+              >
+                ShopFur v1.0
+              </Text>
             </View>
           </Animated.View>
         </TouchableOpacity>
       )}
 
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={toggleMenu}>
-          <Text style={styles.headerIcon}>☰</Text>
+      {/* Modern Header (matching Home.tsx) */}
+      <View style={[styles.header, { backgroundColor: colors.primary }]}>
+        <TouchableOpacity style={styles.headerButton} onPress={toggleMenu}>
+          <View style={styles.menuIconContainer}>
+            <View
+              style={[styles.menuLine, { backgroundColor: colors.cardBg }]}
+            />
+            <View
+              style={[
+                styles.menuLine,
+                { backgroundColor: colors.cardBg, width: 18 },
+              ]}
+            />
+            <View
+              style={[styles.menuLine, { backgroundColor: colors.cardBg }]}
+            />
+          </View>
         </TouchableOpacity>
-        <Image
-          source={require("../assets/cart_icon.png")}
-          style={styles.logoImage}
-          resizeMode="contain"
-        />
-        <Text style={styles.headerIcon}>⚙️</Text>
-      </View>
 
-      <View style={styles.content}>
+        <Text style={styles.headerTitle}>Living Room</Text>
+
         <TouchableOpacity
-          style={styles.backButton}
+          style={styles.headerButton}
           onPress={() => goToScreen("home")}
         >
-          <Text style={styles.backButtonText}>←</Text>
+          <Text style={styles.headerBackIcon}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>Living Room Furniture</Text>
-
-        <View style={styles.buttonRow}>
-          <TouchableOpacity
-            style={styles.optionButton}
-            onPress={() => goToScreen("Chair")}
-          >
-            <Text style={styles.optionText}>🪑 Chair</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.optionButton}
-            onPress={() => goToScreen("Sofa")}
-          >
-            <Text style={styles.optionText}>🛋️ Sofa</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.buttonRow}>
-          <TouchableOpacity
-            style={styles.optionButton}
-            onPress={() => goToScreen("TVStand")}
-          >
-            <Text style={styles.optionText}>📺 TV Stand</Text>
-          </TouchableOpacity>
-        </View>
       </View>
 
-      <View style={styles.bottomNav}>
-        {["home", "inbox", "cart", "profile"].map((target, index) => (
-          <TouchableOpacity
-            key={index}
-            style={styles.navItem}
-            onPress={() => goToScreen(target as Screen)}
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Hero Section */}
+        <View style={[styles.heroSection, { backgroundColor: colors.primary }]}>
+          <Text style={styles.heroIcon}>🛋️</Text>
+          <Text style={styles.heroTitle}>Living Room Collection</Text>
+          <Text style={styles.heroSubtitle}>
+            Explore our curated furniture selection
+          </Text>
+        </View>
+
+        {/* Section Header */}
+        <View style={styles.sectionHeader}>
+          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+            Choose Furniture Type
+          </Text>
+          <Text
+            style={[styles.sectionSubtitle, { color: colors.textSecondary }]}
           >
-            <Text style={styles.navIcon}>
-              {["🏠", "📥", "🛒", "👤"][index]}
+            Select a category to browse
+          </Text>
+        </View>
+
+        {/* Modern Furniture Type Grid */}
+        <View style={styles.furnitureGrid}>
+          {furnitureTypes.map((furniture) => (
+            <TouchableOpacity
+              key={furniture.id}
+              style={[styles.furnitureCard, { backgroundColor: colors.cardBg }]}
+              onPress={() => goToScreen(furniture.screen as Screen)}
+              activeOpacity={0.7}
+            >
+              <View
+                style={[
+                  styles.furnitureIconCircle,
+                  { backgroundColor: colors.background },
+                ]}
+              >
+                <Text style={styles.furnitureIcon}>{furniture.icon}</Text>
+              </View>
+              <Text
+                style={[styles.furnitureLabel, { color: colors.textPrimary }]}
+              >
+                {furniture.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Info Card */}
+        <View
+          style={[
+            styles.infoCard,
+            { backgroundColor: colors.cardBg, borderColor: colors.border },
+          ]}
+        >
+          <Text style={styles.infoIcon}>💡</Text>
+          <View style={styles.infoContent}>
+            <Text style={[styles.infoTitle, { color: colors.textPrimary }]}>
+              AR Preview Available
             </Text>
-            <Text style={styles.navLabel}>
-              {["Home", "Inbox", "Cart", "Profile"][index]}
+            <Text
+              style={[styles.infoDescription, { color: colors.textSecondary }]}
+            >
+              Use AR to visualize furniture in your space before purchasing
             </Text>
-          </TouchableOpacity>
-        ))}
+          </View>
+        </View>
+
+        <View style={{ height: 100 }} />
+      </ScrollView>
+
+      {/* Modern Bottom Navigation (matching Home.tsx) */}
+      <View
+        style={[
+          styles.bottomNav,
+          { backgroundColor: colors.cardBg, borderTopColor: colors.border },
+        ]}
+      >
+        <TouchableOpacity
+          style={styles.navItem}
+          onPress={() => goToScreen("home")}
+        >
+          <View style={styles.navIconContainer}>
+            <Text style={[styles.navIcon, { color: colors.textSecondary }]}>
+              🏠
+            </Text>
+          </View>
+          <Text style={[styles.navLabel, { color: colors.textSecondary }]}>
+            Home
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.navItem}
+          onPress={() => goToScreen("Wishlist")}
+        >
+          <View style={styles.navIconContainer}>
+            <Text style={[styles.navIcon, { color: colors.textSecondary }]}>
+              ♡
+            </Text>
+          </View>
+          <Text style={[styles.navLabel, { color: colors.textSecondary }]}>
+            Wishlist
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.navItem}
+          onPress={() => goToScreen("profile")}
+        >
+          <View style={styles.navIconContainer}>
+            <Text style={[styles.navIcon, { color: colors.textSecondary }]}>
+              👤
+            </Text>
+          </View>
+          <Text style={[styles.navLabel, { color: colors.textSecondary }]}>
+            Profile
+          </Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
 };
 
-export default LivingRoomScreen;
-
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#D8C5B4" },
-  header: {
-    backgroundColor: "#3E2E22",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  headerIcon: {
-    color: "white",
-    fontSize: 24,
-  },
-  logoContainer: { flexDirection: "row", alignItems: "center" },
-  logo: { width: 30, height: 30, marginRight: 6 },
-  logoText: { color: "white", fontWeight: "bold", fontSize: 16 },
-
-  content: { padding: 20, flex: 1 },
-  title: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: "#3E2E22",
-    marginBottom: 20,
-  },
-  buttonRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    marginBottom: 12,
-  },
-  optionButton: {
-    backgroundColor: "#EBDDCB",
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 10,
-    marginRight: 12,
-    marginBottom: 10,
-  },
-  optionText: { fontSize: 16, fontWeight: "600", color: "#3E2E22" },
-  bottomNav: {
-    backgroundColor: "#3E2E22",
-    flexDirection: "row",
-    justifyContent: "space-around",
-    paddingVertical: 10,
-  },
-  navItem: { alignItems: "center" },
-  navIcon: { color: "white", fontSize: 22 },
-  navLabel: { color: "white", fontSize: 12, marginTop: 2 },
-  backButtonText: { color: "white", fontWeight: "600" },
-  backButton: {
-    backgroundColor: "#A89580",
-    alignSelf: "flex-start",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    marginBottom: 20,
-  },
-
-  menuItem: {
-    borderBottomWidth: 1,
-    borderBottomColor: "#CBB8A6",
-    paddingVertical: 16,
-  },
-  menuText: {
-    fontSize: 16,
-    color: "#3E2E22",
-    fontWeight: "500",
-  },
-  drawerBottomImage: {
+  container: {
     flex: 1,
-    justifyContent: "flex-end",
-    alignItems: "center",
-    paddingTop: 40,
   },
-  sfImage: {
-    width: 100,
-    height: 80,
-  },
-  logoImage: {
-    width: 100,
-    height: 40,
+  scrollView: {
+    flex: 1,
   },
   backdrop: {
     position: "absolute",
@@ -241,18 +327,254 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: "rgba(0,0,0,0.3)",
-    zIndex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    zIndex: 999,
   },
   drawer: {
     position: "absolute",
     top: 0,
     left: 0,
-    width: "70%",
+    width: "80%",
+    maxWidth: 320,
     height: "100%",
-    backgroundColor: "#D8C5B4",
+    shadowColor: "#000",
+    shadowOffset: { width: 2, height: 0 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  drawerHeader: {
+    paddingTop: 60,
+    paddingHorizontal: 24,
+    paddingBottom: 24,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F0F0F0",
+  },
+  closeButton: {
+    alignSelf: "flex-start",
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#F5F5F5",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+  closeButtonText: {
+    fontSize: 18,
+    fontWeight: "600",
+  },
+  drawerTitle: {
+    fontSize: 28,
+    fontWeight: "700",
+  },
+  drawerContent: {
+    flex: 1,
+    paddingTop: 16,
+  },
+  drawerItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+  },
+  drawerItemIcon: {
+    fontSize: 24,
+    marginRight: 16,
+  },
+  drawerItemText: {
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  drawerFooter: {
+    paddingHorizontal: 24,
+    paddingBottom: 40,
+    alignItems: "center",
+  },
+  drawerLogo: {
+    width: 80,
+    height: 60,
+    marginBottom: 8,
+  },
+  drawerFooterText: {
+    fontSize: 12,
+  },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    paddingTop: 20,
+  },
+  headerButton: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  menuIconContainer: {
+    width: 24,
+    gap: 4,
+  },
+  menuLine: {
+    height: 2,
+    width: 24,
+    borderRadius: 1,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  headerBackIcon: {
+    fontSize: 24,
+    fontWeight: "600",
+    color: "#FFFFFF",
+  },
+  heroSection: {
+    marginHorizontal: 20,
+    marginTop: 16,
+    borderRadius: 20,
+    padding: 32,
+    alignItems: "center",
+  },
+  heroIcon: {
+    fontSize: 48,
+    marginBottom: 12,
+  },
+  heroTitle: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: "#FFFFFF",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  heroSubtitle: {
+    fontSize: 15,
+    color: "#FFFFFF",
+    opacity: 0.9,
+    textAlign: "center",
+  },
+  sectionHeader: {
+    paddingHorizontal: 20,
+    paddingTop: 32,
+    paddingBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 24,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  sectionSubtitle: {
+    fontSize: 15,
+  },
+  furnitureGrid: {
+    paddingHorizontal: 20,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 16,
+  },
+  furnitureCard: {
+    width: (Dimensions.get("window").width - 56) / 2,
+    borderRadius: 16,
     padding: 20,
-    zIndex: 2,
-    justifyContent: "flex-start",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  furnitureIconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  furnitureIcon: {
+    fontSize: 28,
+  },
+  furnitureLabel: {
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 8,
+  },
+  furnitureArrow: {
+    position: "absolute",
+    bottom: 20,
+    right: 20,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  furnitureArrowText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  infoCard: {
+    marginHorizontal: 20,
+    marginTop: 24,
+    borderRadius: 16,
+    padding: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  infoIcon: {
+    fontSize: 32,
+    marginRight: 16,
+  },
+  infoContent: {
+    flex: 1,
+  },
+  infoTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 4,
+  },
+  infoDescription: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  bottomNav: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    paddingVertical: 12,
+    paddingBottom: 24,
+    borderTopWidth: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  navItem: {
+    alignItems: "center",
+    gap: 4,
+  },
+  navIconContainer: {
+    width: 48,
+    height: 48,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  navIcon: {
+    fontSize: 24,
+  },
+  navLabel: {
+    fontSize: 12,
+    fontWeight: "500",
   },
 });
+
+export default LivingRoomScreen;

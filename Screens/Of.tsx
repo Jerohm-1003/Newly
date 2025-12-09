@@ -9,7 +9,7 @@ import {
   Animated,
   Dimensions,
   StatusBar,
-  ActivityIndicator, // 👈 add this
+  ActivityIndicator,
 } from "react-native";
 import { firestore } from "../firebase/firebaseConfig";
 import { collection, getDocs, query, where } from "firebase/firestore";
@@ -28,18 +28,19 @@ interface Product {
 }
 
 interface Props {
-  category: "BedChair" | "Wardrobe" | "Bed";
+  category: "officechair" | "laptopstand" | "officedesk";
   goToScreen: (screen: Screen, params?: any) => void;
 }
 
-const BRoomScreen: React.FC<Props> = ({ category, goToScreen }) => {
+const OF: React.FC<Props> = ({ category, goToScreen }) => {
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const slideAnim = useRef(new Animated.Value(-width)).current;
   const [isLowToHigh, setIsLowToHigh] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
-  const slideAnim = useRef(new Animated.Value(-width)).current;
 
+  // Color Palette - Theme
   const colors = {
     primary: "#2D2416",
     secondary: "#8B7355",
@@ -57,7 +58,7 @@ const BRoomScreen: React.FC<Props> = ({ category, goToScreen }) => {
         setIsLoading(true); // start loading
 
         const q = query(
-          collection(firestore, "bedroom_products"),
+          collection(firestore, "office_products"),
           where("category", "==", category)
         );
         const querySnapshot = await getDocs(q);
@@ -140,7 +141,6 @@ const BRoomScreen: React.FC<Props> = ({ category, goToScreen }) => {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar barStyle="light-content" backgroundColor={colors.primary} />
 
-      {/* 🔄 Loading Screen */}
       {isLoading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.accent} />
@@ -150,7 +150,7 @@ const BRoomScreen: React.FC<Props> = ({ category, goToScreen }) => {
         </View>
       ) : (
         <>
-          {/* Header */}
+          {/* Modern Drawer */}
           {drawerOpen && (
             <TouchableOpacity
               style={styles.backdrop}
@@ -304,9 +304,9 @@ const BRoomScreen: React.FC<Props> = ({ category, goToScreen }) => {
               <Text
                 style={[styles.categoryTitle, { color: colors.textPrimary }]}
               >
-                {category === "BedChair" && "Chair"}
-                {category === "Wardrobe" && "Wardrobe"}
-                {category === "Bed" && "Bed"}
+                {category === "officechair" && "Office Chair"}
+                {category === "laptopstand" && "Laptop Stand"}
+                {category === "officedesk" && "Office Desk"}
               </Text>
               <Text
                 style={[styles.productCount, { color: colors.textSecondary }]}
@@ -331,7 +331,7 @@ const BRoomScreen: React.FC<Props> = ({ category, goToScreen }) => {
             </TouchableOpacity>
           </View>
 
-          {/* Products */}
+          {/* Products Grid */}
           <FlatList
             data={filteredProducts}
             renderItem={renderItem}
@@ -341,7 +341,7 @@ const BRoomScreen: React.FC<Props> = ({ category, goToScreen }) => {
             showsVerticalScrollIndicator={false}
           />
 
-          {/* ✅ Bottom Navigation */}
+          {/* Modern Bottom Navigation */}
           <View
             style={[
               styles.bottomNav,
@@ -352,9 +352,11 @@ const BRoomScreen: React.FC<Props> = ({ category, goToScreen }) => {
               style={styles.navItem}
               onPress={() => goToScreen("home")}
             >
-              <Text style={[styles.navIcon, { color: colors.textSecondary }]}>
-                🏠
-              </Text>
+              <View style={styles.navIconContainer}>
+                <Text style={[styles.navIcon, { color: colors.textSecondary }]}>
+                  🏠
+                </Text>
+              </View>
               <Text style={[styles.navLabel, { color: colors.textSecondary }]}>
                 Home
               </Text>
@@ -364,9 +366,11 @@ const BRoomScreen: React.FC<Props> = ({ category, goToScreen }) => {
               style={styles.navItem}
               onPress={() => goToScreen("Wishlist")}
             >
-              <Text style={[styles.navIcon, { color: colors.textSecondary }]}>
-                ♡
-              </Text>
+              <View style={styles.navIconContainer}>
+                <Text style={[styles.navIcon, { color: colors.textSecondary }]}>
+                  ♡
+                </Text>
+              </View>
               <Text style={[styles.navLabel, { color: colors.textSecondary }]}>
                 Wishlist
               </Text>
@@ -376,9 +380,11 @@ const BRoomScreen: React.FC<Props> = ({ category, goToScreen }) => {
               style={styles.navItem}
               onPress={() => goToScreen("profile")}
             >
-              <Text style={[styles.navIcon, { color: colors.textSecondary }]}>
-                👤
-              </Text>
+              <View style={styles.navIconContainer}>
+                <Text style={[styles.navIcon, { color: colors.textSecondary }]}>
+                  👤
+                </Text>
+              </View>
               <Text style={[styles.navLabel, { color: colors.textSecondary }]}>
                 Profile
               </Text>
@@ -393,11 +399,6 @@ const BRoomScreen: React.FC<Props> = ({ category, goToScreen }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  loadingContainer: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
   },
 
   backdrop: {
@@ -583,6 +584,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
   },
+  loadingContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 
   bottomNav: {
     position: "absolute",
@@ -619,4 +625,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default BRoomScreen;
+export default OF;

@@ -6,32 +6,35 @@ import {
   ScrollView,
   Image,
   TouchableOpacity,
-  Alert,
   StyleSheet,
   Modal,
   FlatList,
 } from "react-native";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import {
+  collection,
+  addDoc,
+  serverTimestamp,
+  doc,
+  getDoc,
+} from "firebase/firestore";
 import { auth, firestore } from "../firebase/firebaseConfig";
 import type { Screen } from "./App";
+import CustomAlert from "./CustomAlert";
 
 interface FurnitureData {
   name: string;
   price: string;
   description: string;
-  dimensions: {
-    length: string;
-    width: string;
-    height: string;
-  };
+  size: string;
   category: string;
   imageUris: string[];
   status: "pending" | "approved";
-  uploadedBy: string | null;
+  uploader: string | null;
   username?: string | null;
   contactNo?: string | null;
-
-  createdAt: any; // Firestore timestamp
+  createdAt: any;
+  material: string;
+  color: string;
 }
 
 interface FurnitureUploadScreenProps {
@@ -39,20 +42,18 @@ interface FurnitureUploadScreenProps {
   goToScreen: (screen: Screen, params?: any) => void;
 }
 
-// Categories
 const categories = [
-  "Sofa",
-  "Chair",
-  "TV Stand",
-  "Desks",
-  "Bed",
-  "Wardrobe",
-  "Dining Chair",
-  "Cabinet",
-  "Dining Table",
+  { key: "Sofa", label: "Sofa" },
+  { key: "Chair", label: "Chair" },
+  { key: "TVStand", label: "TV Stand" },
+  { key: "BedChair", label: "Bed Chair" },
+  { key: "Bed", label: "Bed" },
+  { key: "Wardrobe", label: "Wardrobe" },
+  { key: "officechair", label: "Office Chair" },
+  { key: "laptopstand", label: "Laptop Stand" },
+  { key: "officedesk", label: "Office Desk" },
 ];
 
-// Custom Dropdown Component
 const Dropdown: React.FC<{
   value: string;
   onSelect: (val: string) => void;
@@ -62,36 +63,39 @@ const Dropdown: React.FC<{
   return (
     <View>
       <TouchableOpacity style={styles.input} onPress={() => setVisible(true)}>
-        <Text style={{ color: value ? "#3E2E22" : "#888" }}>
-          {value || "Select Category"}
-        </Text>
+        <View style={styles.dropdownContent}>
+          <Text style={value ? styles.inputText : styles.placeholderText}>
+            {categories.find((c) => c.key === value)?.label ||
+              "Select Category"}
+          </Text>
+        </View>
       </TouchableOpacity>
 
-      <Modal visible={visible} transparent animationType="slide">
+      <Modal visible={visible} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>Select Category</Text>
             <FlatList
               data={categories}
-              keyExtractor={(item) => item}
+              keyExtractor={(item) => item.key}
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={styles.option}
                   onPress={() => {
-                    onSelect(item);
+                    onSelect(item.key);
                     setVisible(false);
                   }}
                 >
-                  <Text style={styles.optionText}>{item}</Text>
+                  <Text style={styles.optionText}>{item.label}</Text>
+                  <View style={styles.optionIndicator} />
                 </TouchableOpacity>
               )}
             />
             <TouchableOpacity
-              style={[styles.option, { backgroundColor: "#ddd" }]}
+              style={styles.cancelButton}
               onPress={() => setVisible(false)}
             >
-              <Text style={[styles.optionText, { color: "black" }]}>
-                Cancel
-              </Text>
+              <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -108,35 +112,81 @@ const FurnitureUploadScreen: React.FC<FurnitureUploadScreenProps> = ({
     name: "",
     price: "",
     description: "",
-    dimensions: { length: "", width: "", height: "" },
+    size: "",
     category: "",
-
     imageUris: [],
     status: "pending",
-    uploadedBy: auth.currentUser?.uid || null,
-    username: auth.currentUser?.displayName || null, // ✅ fetch username
-
+    uploader: auth.currentUser?.uid || null,
+    username: null,
+    contactNo: "",
     createdAt: serverTimestamp(),
+    material: "",
+    color: "",
   });
+
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertType, setAlertType] = useState<"success" | "error">("success");
+  const [alertMessage, setAlertMessage] = useState("");
+
+  const showAlert = (type: "success" | "error", message: string) => {
+    setAlertType(type);
+    setAlertMessage(message);
+    setAlertVisible(true);
+  };
+
+  // ✅ Fetch username from users collection
+  React.useEffect(() => {
+    const fetchSellerInfo = async () => {
+      const user = auth.currentUser;
+      if (!user) return;
+
+      try {
+        const userDocRef = doc(firestore, "users", user.uid);
+        const userSnap = await getDoc(userDocRef);
+
+        if (userSnap.exists()) {
+          const userData = userSnap.data();
+          if (userData.role === "seller") {
+            setFurnitureData((prev) => ({
+              ...prev,
+              username: userData.username || "Unknown Seller",
+            }));
+          } else {
+            showAlert("error", "Only sellers can upload furniture.");
+          }
+        } else {
+          showAlert("error", "User data not found.");
+        }
+      } catch (error) {
+        console.error("Error fetching user data:", error);
+        showAlert("error", "Failed to fetch seller info.");
+      }
+    };
+
+    fetchSellerInfo();
+  }, []);
 
   const submitFurniture = async () => {
     const user = auth.currentUser;
 
     if (!user) {
-      Alert.alert("Error", "You must be logged in to submit furniture.");
+      showAlert("error", "You must be logged in to submit furniture.");
       return;
     }
 
-    const { name, price, description, category, imageUris } = furnitureData;
+    const { name, price, description, category, imageUris, material, color } =
+      furnitureData;
 
     if (
       !name ||
       !price ||
       !description ||
       !category ||
+      !material ||
+      !color ||
       imageUris.length === 0
     ) {
-      Alert.alert("Error", "Please fill in all required fields.");
+      showAlert("error", "Please fill in all required fields.");
       return;
     }
 
@@ -145,249 +195,533 @@ const FurnitureUploadScreen: React.FC<FurnitureUploadScreenProps> = ({
         ...furnitureData,
         price: parseFloat(furnitureData.price),
         status: "pending",
-        uploadedBy: auth.currentUser?.uid,
-        username: auth.currentUser?.displayName || "Unknown", // ✅ save username
+        uploader: auth.currentUser?.uid,
+        username:
+          furnitureData.username || auth.currentUser?.displayName || "Unknown",
         contactNo: furnitureData.contactNo || "Not provided",
-
         createdAt: serverTimestamp(),
       });
 
-      Alert.alert("Success", "Furniture submitted for review.");
+      showAlert("success", "Furniture submitted for review.");
+
       setFurnitureData({
         name: "",
         price: "",
         description: "",
-        dimensions: { length: "", width: "", height: "" },
+        size: "",
         category: "",
         imageUris: [],
         status: "pending",
-        uploadedBy: auth.currentUser?.uid || null,
+        uploader: auth.currentUser?.uid || null,
+        username: auth.currentUser?.displayName || null,
+        contactNo: "",
         createdAt: serverTimestamp(),
+        material: "",
+        color: "",
       });
     } catch (error) {
-      Alert.alert("Upload Failed", "Please try again later.");
+      showAlert("error", "Upload failed. Please try again later.");
       console.error("Error uploading furniture:", error);
     }
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <View style={styles.container}>
+      {/* Custom Alert */}
+      <CustomAlert
+        visible={alertVisible}
+        type={alertType}
+        title={alertType === "success" ? "Success" : "Error"}
+        message={alertMessage}
+        onConfirm={() => setAlertVisible(false)}
+        onCancel={() => setAlertVisible(false)}
+      />
+
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={goBack}>
           <Text style={styles.backButtonText}>←</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => goToScreen("home")}>
-          <Text style={styles.headerIcon}>⚙️</Text>
+        <Text style={styles.headerTitle}>Upload Furniture</Text>
+        <TouchableOpacity
+          style={styles.settingsButton}
+          onPress={() => goToScreen("settings")}
+        >
+          <Text style={styles.settingsIcon}>⚙️</Text>
         </TouchableOpacity>
       </View>
 
-      <Text style={styles.title}>Upload Furniture</Text>
-
-      {/* Name */}
-      <Text style={styles.label}>Name</Text>
-      <TextInput
-        value={furnitureData.name}
-        onChangeText={(text) =>
-          setFurnitureData({ ...furnitureData, name: text })
-        }
-        placeholder="Enter furniture name"
-        style={styles.input}
-        placeholderTextColor="#888"
-      />
-
-      {/* Price */}
-      <Text style={styles.label}>Price</Text>
-      <TextInput
-        keyboardType="numeric"
-        value={furnitureData.price}
-        onChangeText={(text) =>
-          setFurnitureData({ ...furnitureData, price: text })
-        }
-        placeholder="Enter price"
-        style={styles.input}
-        placeholderTextColor="#888"
-      />
-
-      {/* Description */}
-      <Text style={styles.label}>Description</Text>
-      <TextInput
-        multiline
-        numberOfLines={4}
-        value={furnitureData.description}
-        onChangeText={(text) =>
-          setFurnitureData({ ...furnitureData, description: text })
-        }
-        placeholder="Enter description"
-        style={[styles.input, { height: 100 }]}
-        placeholderTextColor="#888"
-      />
-
-      {/* Dimensions */}
-      <Text style={styles.label}>Dimensions (L x W x H in meter)</Text>
-      <View style={styles.dimensionsRow}>
-        {["length", "width", "height"].map((dim) => (
-          <TextInput
-            key={dim}
-            placeholder={dim.charAt(0).toUpperCase() + dim.slice(1)}
-            keyboardType="numeric"
-            value={
-              furnitureData.dimensions[
-                dim as keyof typeof furnitureData.dimensions
-              ]
-            }
-            onChangeText={(text) =>
-              setFurnitureData({
-                ...furnitureData,
-                dimensions: { ...furnitureData.dimensions, [dim]: text },
-              })
-            }
-            style={styles.dimensionInput}
-            placeholderTextColor="#888"
-          />
-        ))}
-      </View>
-
-      {/* Category Dropdown */}
-      <Text style={styles.label}>Category</Text>
-      <Dropdown
-        value={furnitureData.category}
-        onSelect={(val) =>
-          setFurnitureData({ ...furnitureData, category: val })
-        }
-      />
-      <Text style={styles.label}>Seller Name</Text>
-      <TextInput
-        keyboardType="default"
-        value={furnitureData.username || ""}
-        onChangeText={(text) =>
-          setFurnitureData({ ...furnitureData, username: text })
-        }
-        placeholder="Seller Name"
-        style={styles.input}
-        placeholderTextColor="#888"
-      />
-      <Text style={styles.label}>Contact Number</Text>
-      <TextInput
-        keyboardType="number-pad"
-        value={furnitureData.contactNo || ""}
-        onChangeText={(text) =>
-          setFurnitureData({ ...furnitureData, contactNo: text })
-        }
-        placeholder="Enter your contact number"
-        style={styles.input}
-        placeholderTextColor="#888"
-      />
-
-      {/* Image Uris */}
-      <Text style={styles.label}>Image URIs</Text>
-      <TextInput
-        value={furnitureData.imageUris.join(", ")}
-        onChangeText={(text) =>
-          setFurnitureData({
-            ...furnitureData,
-            imageUris: text.split(",").map((s) => s.trim()),
-          })
-        }
-        placeholder="Enter imageUri(s), separated by commas"
-        style={styles.input}
-        placeholderTextColor="#888"
-      />
-
-      {/* Preview Images */}
-      <ScrollView horizontal style={{ marginTop: 10 }}>
-        {furnitureData.imageUris.map((uri, index) => (
-          <Image
-            key={index}
-            source={{ uri }}
-            style={{ width: 100, height: 100, marginRight: 10 }}
-            resizeMode="cover"
-          />
-        ))}
-      </ScrollView>
-
-      {/* Submit */}
-      <TouchableOpacity
-        style={[styles.button, { backgroundColor: "#3E2E22", marginTop: 20 }]}
-        onPress={submitFurniture}
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.buttonText}>Submit Furniture</Text>
-      </TouchableOpacity>
-    </ScrollView>
+        <View style={styles.heroSection}>
+          <Text style={styles.heroTitle}>List Your Furniture</Text>
+          <Text style={styles.heroSubtitle}>
+            Fill in the details below to get started
+          </Text>
+        </View>
+
+        <View style={styles.formCard}>
+          {/* Name */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Furniture Name</Text>
+            <TextInput
+              value={furnitureData.name}
+              onChangeText={(text) =>
+                setFurnitureData({ ...furnitureData, name: text })
+              }
+              placeholder="e.g., Modern Oak Coffee Table"
+              style={styles.input}
+              placeholderTextColor="#999"
+            />
+          </View>
+
+          {/* Price */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Price (₱)</Text>
+            <TextInput
+              keyboardType="numeric"
+              value={furnitureData.price}
+              onChangeText={(text) =>
+                setFurnitureData({ ...furnitureData, price: text })
+              }
+              placeholder="0.00"
+              style={styles.input}
+              placeholderTextColor="#999"
+            />
+          </View>
+          {/* Material */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Material</Text>
+            <TextInput
+              value={furnitureData.material}
+              onChangeText={(text) =>
+                setFurnitureData({ ...furnitureData, material: text })
+              }
+              placeholder="e.g., Wood, Metal, Glass"
+              style={styles.input}
+              placeholderTextColor="#999"
+            />
+          </View>
+
+          {/* Color */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Color</Text>
+            <TextInput
+              value={furnitureData.color}
+              onChangeText={(text) =>
+                setFurnitureData({ ...furnitureData, color: text })
+              }
+              placeholder="e.g., Black, White, Brown"
+              style={styles.input}
+              placeholderTextColor="#999"
+            />
+          </View>
+
+          {/* Category */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Category</Text>
+            <Dropdown
+              value={furnitureData.category}
+              onSelect={(val) =>
+                setFurnitureData({ ...furnitureData, category: val })
+              }
+            />
+          </View>
+
+          {/* Description */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Description</Text>
+            <TextInput
+              multiline
+              numberOfLines={4}
+              value={furnitureData.description}
+              onChangeText={(text) =>
+                setFurnitureData({ ...furnitureData, description: text })
+              }
+              placeholder="Describe the furniture..."
+              style={[styles.input, styles.textArea]}
+              placeholderTextColor="#999"
+              textAlignVertical="top"
+            />
+          </View>
+
+          {/* Dimensions */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>
+              Size - height, width, depth in meters
+            </Text>
+            <TextInput
+              value={furnitureData.size}
+              onChangeText={(text) =>
+                setFurnitureData({ ...furnitureData, size: text })
+              }
+              placeholder="formatting- height, width, depth"
+              style={styles.input}
+              placeholderTextColor="#999"
+            />
+          </View>
+
+          {/* Seller Info */}
+          <View style={styles.sectionDivider}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>Seller Information</Text>
+            <View style={styles.dividerLine} />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Contact Number</Text>
+            <TextInput
+              keyboardType="phone-pad"
+              value={furnitureData.contactNo || ""}
+              onChangeText={(text) =>
+                setFurnitureData({ ...furnitureData, contactNo: text })
+              }
+              placeholder="+63 XXX XXX XXXX"
+              style={styles.input}
+              placeholderTextColor="#999"
+            />
+          </View>
+
+          {/* Image URLs */}
+          <View style={styles.sectionDivider}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>Product Images</Text>
+            <View style={styles.dividerLine} />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Image URLs</Text>
+            <Text style={styles.helperText}>
+              Enter URLs separated by commas
+            </Text>
+            <TextInput
+              value={furnitureData.imageUris.join(", ")}
+              onChangeText={(text) =>
+                setFurnitureData({
+                  ...furnitureData,
+                  imageUris: text.split(",").map((s) => s.trim()),
+                })
+              }
+              placeholder="https://example.com/img1.jpg, https://example.com/img2.jpg"
+              style={[styles.input, styles.textArea]}
+              placeholderTextColor="#999"
+              multiline
+            />
+          </View>
+
+          {/* Image Preview */}
+          {furnitureData.imageUris.length > 0 &&
+            furnitureData.imageUris[0] !== "" && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={{ marginTop: 12 }}
+              >
+                {furnitureData.imageUris.map((uri, index) => (
+                  <Image
+                    key={index}
+                    source={{ uri }}
+                    style={{
+                      width: 120,
+                      height: 120,
+                      borderRadius: 12,
+                      marginRight: 8,
+                    }}
+                  />
+                ))}
+              </ScrollView>
+            )}
+        </View>
+
+        {/* Submit Button */}
+        <TouchableOpacity style={styles.submitButton} onPress={submitFurniture}>
+          <Text style={styles.submitButtonText}>Submit for Review →</Text>
+        </TouchableOpacity>
+
+        <View style={{ height: 50 }} />
+      </ScrollView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { padding: 20, backgroundColor: "#A89580", flexGrow: 1 },
+  container: {
+    flex: 1,
+    backgroundColor: "#F8F9FA",
+  },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 20,
+    paddingHorizontal: 10,
+    paddingTop: 4,
+    paddingBottom: 20,
+    backgroundColor: "#FFFFFF",
+    borderBottomWidth: 1,
+    borderBottomColor: "#E9ECEF",
   },
   backButton: {
-    backgroundColor: "#3E2E22",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#F8F9FA",
+    justifyContent: "center",
+    alignItems: "center",
   },
-  backButtonText: { color: "white", fontWeight: "600" },
-  headerIcon: { fontSize: 24, color: "#3E2E22" },
-  title: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: "#3E2E22",
+  backButtonText: {
+    fontSize: 20,
+    color: "#1A1A1A",
+    fontWeight: "600",
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1A1A1A",
+  },
+  settingsButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#F8F9FA",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  settingsIcon: {
+    fontSize: 20,
+  },
+  scrollContent: {
+    paddingBottom: 20,
+  },
+  heroSection: {
+    padding: 24,
+    backgroundColor: "#FFFFFF",
+  },
+  heroTitle: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: "#1A1A1A",
+    marginBottom: 8,
+  },
+  heroSubtitle: {
+    fontSize: 15,
+    color: "#6C757D",
+    fontWeight: "400",
+  },
+  formCard: {
+    backgroundColor: "#FFFFFF",
+    marginHorizontal: 20,
+    marginTop: 16,
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  inputGroup: {
     marginBottom: 20,
   },
-  label: { color: "#3E2E22", marginBottom: 4, fontWeight: "600" },
+  label: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#1A1A1A",
+    marginBottom: 8,
+  },
+  helperText: {
+    fontSize: 12,
+    color: "#6C757D",
+    marginBottom: 8,
+  },
   input: {
-    borderWidth: 1,
-    borderColor: "#705D47",
-    backgroundColor: "#F2EDE6",
-    marginBottom: 10,
-    padding: 12,
-    borderRadius: 6,
-    color: "#3E2E22",
+    borderWidth: 1.5,
+    borderColor: "#E9ECEF",
+    backgroundColor: "#F8F9FA",
+    padding: 16,
+    borderRadius: 12,
+    fontSize: 15,
+    color: "#1A1A1A",
+  },
+  inputText: {
+    fontSize: 15,
+    color: "#1A1A1A",
+  },
+  placeholderText: {
+    fontSize: 15,
+    color: "#999",
+  },
+  textArea: {
+    height: 120,
+    textAlignVertical: "top",
+  },
+  dropdownContent: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  dropdownIcon: {
+    fontSize: 12,
+    color: "#6C757D",
   },
   dimensionsRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 10,
+    gap: 12,
+  },
+  dimensionContainer: {
+    flex: 1,
+  },
+  dimensionLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#6C757D",
+    marginBottom: 6,
   },
   dimensionInput: {
-    borderWidth: 1,
-    borderColor: "#705D47",
-    backgroundColor: "#F2EDE6",
-    flex: 1,
-    marginHorizontal: 5,
-    padding: 10,
-    borderRadius: 6,
-    color: "#3E2E22",
+    borderWidth: 1.5,
+    borderColor: "#E9ECEF",
+    backgroundColor: "#F8F9FA",
+    padding: 14,
+    borderRadius: 12,
+    fontSize: 15,
+    color: "#1A1A1A",
+    textAlign: "center",
   },
-  button: { padding: 12, alignItems: "center", borderRadius: 8, marginTop: 10 },
-  buttonText: { color: "white", fontWeight: "bold" },
-  subText: { color: "#3E2E22", marginBottom: 10 },
-
-  // Dropdown styles
+  sectionDivider: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: 24,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: "#E9ECEF",
+  },
+  dividerText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#6C757D",
+    marginHorizontal: 12,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  imagePreviewSection: {
+    marginTop: 16,
+  },
+  previewLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#6C757D",
+    marginBottom: 12,
+  },
+  imageScrollView: {
+    marginHorizontal: -4,
+  },
+  imagePreviewContainer: {
+    marginHorizontal: 4,
+    borderRadius: 12,
+    overflow: "hidden",
+    position: "relative",
+  },
+  imagePreview: {
+    width: 120,
+    height: 120,
+    borderRadius: 12,
+    backgroundColor: "#F8F9FA",
+  },
+  imageNumber: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  imageNumberText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  submitButton: {
+    backgroundColor: "#1A1A1A",
+    marginHorizontal: 20,
+    marginTop: 24,
+    padding: 18,
+    borderRadius: 16,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#1A1A1A",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  submitButtonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "700",
+    marginRight: 8,
+  },
+  submitButtonIcon: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "600",
+  },
   modalOverlay: {
     flex: 1,
     justifyContent: "center",
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
     padding: 20,
   },
   modalBox: {
-    backgroundColor: "white",
-    borderRadius: 8,
-    padding: 10,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 20,
+    maxHeight: "70%",
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#1A1A1A",
+    marginBottom: 16,
   },
   option: {
-    padding: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 8,
+    backgroundColor: "#F8F9FA",
   },
   optionText: {
-    fontSize: 16,
-    color: "#3E2E22",
+    fontSize: 15,
+    color: "#1A1A1A",
+    fontWeight: "500",
+  },
+  optionIndicator: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#1A1A1A",
+  },
+  cancelButton: {
+    marginTop: 12,
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: "#F8F9FA",
+    alignItems: "center",
+  },
+  cancelButtonText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#6C757D",
   },
 });
 

@@ -4,61 +4,44 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-  Alert,
   StyleSheet,
   ActivityIndicator,
+  Animated,
 } from "react-native";
 import {
   collection,
-  query,
-  where,
   getDocs,
   updateDoc,
-  doc,
   setDoc,
-  addDoc,
-  serverTimestamp,
-  onSnapshot,
+  doc,
+  deleteDoc,
   getDoc,
 } from "firebase/firestore";
 import { auth, firestore } from "../firebase/firebaseConfig";
 import { signOut } from "firebase/auth";
+import CustomAlert from "./CustomAlert";
 import type { Screen } from "./App";
+
+export type AdminView =
+  | "pendingProducts"
+  | "approvedProducts"
+  | "rejectedProducts"
+  | "allProducts"
+  | "users";
 
 interface AdminDashboardScreenProps {
   goToScreen: (target: Screen, params?: any) => void;
 }
 
-// --- Payment interface ---
-interface Payment {
-  id: string;
-  userId: string;
-  productId?: string;
-  products?: { id: string; name: string; quantity: number; price: number }[];
-  productName?: string;
-  quantity?: number;
-  price?: number;
-  method?: string;
-  referenceId?: string;
-  status: string;
-  isBulk?: boolean;
-  createdAt?: any;
-  updatedAt?: any;
-  amount?: number; // ✅ Add this
-  totalPrice?: number; // ✅ Add this
-}
-
-// --- Product interface ---
 interface Product {
   id: string;
   name: string;
   description?: string;
   price: number;
   category: string;
+  status: string;
   image?: string;
   glbUri?: string;
-  status: string;
-  uploadedBy?: string;
 }
 
 const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
@@ -67,22 +50,85 @@ const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
   const [pendingProducts, setPendingProducts] = useState<Product[]>([]);
   const [approvedProducts, setApprovedProducts] = useState<Product[]>([]);
   const [rejectedProducts, setRejectedProducts] = useState<Product[]>([]);
-  const [payments, setPayments] = useState<Payment[]>([]);
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [view, setView] = useState<
-    | "pendingProducts"
-    | "approvedProducts"
-    | "rejectedProducts"
-    | "pendingPayments"
-    | "approvedPayments"
-    | "declinedPayments"
-    | "buyerReceived"
-  >("pendingProducts");
-  const [receivedOrders, setReceivedOrders] = useState<any[]>([]);
+  const [view, setView] = useState<AdminView>("pendingProducts");
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarAnim] = useState(new Animated.Value(1));
 
-  // --- Check admin role ---
-  // --- Check admin role ---
+  const [alertConfig, setAlertConfig] = useState({
+    visible: false,
+    title: "",
+    message: "",
+    type: "info" as "success" | "error" | "warning" | "info",
+    onConfirm: () => {},
+    showCancel: false,
+    onCancel: () => {},
+  });
+
+  const showAlert = (
+    title: string,
+    message: string,
+    type: "success" | "error" | "warning" | "info" = "info",
+    onConfirm?: () => void,
+    showCancel: boolean = false,
+    onCancel?: () => void
+  ) => {
+    setAlertConfig({
+      visible: true,
+      title,
+      message,
+      type,
+      onConfirm: () => {
+        setAlertConfig((prev) => ({ ...prev, visible: false }));
+        onConfirm?.();
+      },
+      showCancel,
+      onCancel: () => {
+        setAlertConfig((prev) => ({ ...prev, visible: false }));
+        onCancel?.();
+      },
+    });
+  };
+
+  const fetchAllCollections = async () => {
+    setLoading(true);
+    try {
+      const usersSnap = await getDocs(collection(firestore, "users"));
+      setUsers(usersSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+
+      const productsSnap = await getDocs(collection(firestore, "products"));
+      const productsData = productsSnap.docs.map((d) => ({
+        ...(d.data() as Product),
+        id: d.id,
+      }));
+      setAllProducts(productsData);
+
+      setPendingProducts(productsData.filter((p) => p.status === "pending"));
+      setApprovedProducts(productsData.filter((p) => p.status === "approved"));
+      setRejectedProducts(productsData.filter((p) => p.status === "rejected"));
+    } catch (err) {
+      console.error("Error fetching collections:", err);
+      showAlert("Error", "Failed to fetch data from Firestore.", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    checkAdmin();
+  }, []);
+
+  useEffect(() => {
+    Animated.timing(sidebarAnim, {
+      toValue: sidebarOpen ? 1 : 0,
+      duration: 300,
+      useNativeDriver: false,
+    }).start();
+  }, [sidebarOpen]);
+
   const checkAdmin = async () => {
     try {
       const user = auth.currentUser;
@@ -90,7 +136,7 @@ const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
 
       const userDoc = await getDoc(doc(firestore, "users", user.uid));
       if (!userDoc.exists()) {
-        Alert.alert("Access Denied", "User record not found.");
+        showAlert("Access Denied", "User record not found.", "error");
         setLoading(false);
         return;
       }
@@ -98,658 +144,659 @@ const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
       const data = userDoc.data();
       if (data?.role === "admin") {
         setIsAdmin(true);
-        await fetchAllProducts();
+        await fetchAllCollections();
       } else {
-        Alert.alert("Access Denied", "You are not authorized.");
+        showAlert("Access Denied", "You are not authorized.", "error");
       }
     } catch (err) {
       console.error(err);
-      Alert.alert("Error", "Failed to verify admin.");
+      showAlert("Error", "Failed to verify admin.", "error");
     } finally {
       setLoading(false);
     }
   };
 
-  // --- Fetch products ---
-  const fetchProductsByStatus = async (status: string) => {
-    const q = query(
-      collection(firestore, "products"),
-      where("status", "==", status)
-    );
-    const snap = await getDocs(q);
-    return snap.docs.map((d) => ({
-      ...(d.data() as Product), // spread first
-      id: d.id, // overwrite/add Firestore doc ID
-    }));
-  };
-
-  const fetchAllProducts = async () => {
-    try {
-      const pending = await fetchProductsByStatus("pending");
-      const approved = await fetchProductsByStatus("approved");
-      const rejected = await fetchProductsByStatus("rejected");
-
-      setPendingProducts(pending);
-      setApprovedProducts(approved);
-      setRejectedProducts(rejected);
-    } catch (err) {
-      console.error(err);
-      Alert.alert("Error", "Failed to fetch products.");
-    }
-  };
-
-  // --- Fetch payments with live updates ---
-  const fetchPayments = () => {
-    const paymentsRef = collection(firestore, "payments");
-    const q = query(
-      paymentsRef,
-      where("status", "in", ["pending", "approved", "declined"])
-    );
-    const unsub = onSnapshot(q, (snapshot) => {
-      const data: Payment[] = snapshot.docs.map((d) => ({
-        ...(d.data() as Payment),
-        id: d.id, // always ensure Firestore doc ID is used
-      }));
-      setPayments(
-        data.sort((a, b) => {
-          const aTime = a.updatedAt?.toDate?.() ?? a.createdAt?.toDate?.() ?? 0;
-          const bTime = b.updatedAt?.toDate?.() ?? b.createdAt?.toDate?.() ?? 0;
-          return bTime - aTime;
-        })
-      );
-    });
-    return unsub;
-  };
-
-  // --- Listen for buyer-received orders ---
-  const listenToBuyerReceived = () => {
-    const ordersRef = collection(firestore, "orders");
-    const q = query(ordersRef, where("buyerReceived", "==", true));
-
-    const unsub = onSnapshot(q, async (snapshot) => {
-      const data = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-
-      await enrichReceivedOrders(data);
-    });
-
-    return unsub;
-  };
-
-  // --- Fetch buyer details for received orders ---
-  const enrichReceivedOrders = async (orders: any[]) => {
-    const enriched = await Promise.all(
-      orders.map(async (order) => {
-        let buyerInfo = { username: "Unknown", contactNo: "N/A" };
-        let sellerInfo = { username: "Unknown" };
-
+  const handleDelete = async (collectionName: string, id: string) => {
+    showAlert(
+      "Confirm Delete",
+      "Are you sure you want to delete this item?",
+      "warning",
+      async () => {
         try {
-          // Fetch buyer info
-          if (order.userId) {
-            const buyerSnap = await getDoc(
-              doc(firestore, "users", order.userId)
-            );
-            if (buyerSnap.exists()) {
-              buyerInfo = {
-                username: buyerSnap.data().username || "Unknown",
-                contactNo: buyerSnap.data().contactNumber || "N/A",
-              };
-            }
+          // Delete from Firestore first
+          await deleteDoc(doc(firestore, collectionName, id));
+
+          // Update local state directly without fetching all again
+          if (collectionName === "users") {
+            setUsers((prev) => prev.filter((u) => u.id !== id));
+          } else if (collectionName === "products") {
+            setAllProducts((prev) => prev.filter((p) => p.id !== id));
+            setPendingProducts((prev) => prev.filter((p) => p.id !== id));
+            setApprovedProducts((prev) => prev.filter((p) => p.id !== id));
+            setRejectedProducts((prev) => prev.filter((p) => p.id !== id));
           }
 
-          // Fetch seller info
-          if (order.sellerId) {
-            const sellerSnap = await getDoc(
-              doc(firestore, "users", order.sellerId)
-            );
-            if (sellerSnap.exists()) {
-              sellerInfo = {
-                username: sellerSnap.data().username || "Unknown Seller",
-              };
-            }
-          }
+          // Success alert
+          showAlert("Success", "Deleted successfully!", "success");
         } catch (err) {
-          console.warn("Error fetching buyer/seller:", err);
+          console.error("Error deleting:", err);
+          showAlert(
+            "Error",
+            "Failed to delete from server. Local changes not applied.",
+            "error"
+          );
         }
-
-        return {
-          ...order,
-          buyerInfo,
-          sellerInfo,
-        };
-      })
+      },
+      true
     );
-
-    setReceivedOrders(enriched);
   };
 
-  useEffect(() => {
-    checkAdmin();
-    fetchAllProducts();
-    const unsubPayments = fetchPayments();
-    const unsubReceived = listenToBuyerReceived(); // ✅ new line
-    return () => {
-      unsubPayments();
-      unsubReceived();
-    };
-  }, []);
-
-  // --- Approve/reject product ---
-  // --- Approve/reject product ---
   const handleProductApproval = async (
     product: Product,
     newStatus: "approved" | "rejected"
   ) => {
-    try {
-      const productRef = doc(firestore, "products", product.id);
-      await updateDoc(productRef, { status: newStatus });
+    showAlert(
+      "Confirm Action",
+      `Are you sure you want to ${newStatus} this product?`,
+      "warning",
+      async () => {
+        try {
+          const productRef = doc(firestore, "products", product.id);
+          await updateDoc(productRef, { status: newStatus });
 
-      if (newStatus === "approved") {
-        const collectionMap: Record<string, string> = {
-          Sofa: "livingroom_products",
-          Chair: "livingroom_products",
-          TVStand: "livingroom_products",
-          Bed: "bedroom_products",
-          Wardrobe: "bedroom_products",
-          Desks: "bedroom_products",
-          DiningChair: "dining_products",
-          Cabinet: "dining_products",
-          DiningTable: "dining_products",
-        };
-        const targetParent = collectionMap[product.category];
-        if (targetParent) {
-          const targetRef = doc(firestore, targetParent, product.id);
-          await setDoc(targetRef, {
-            name: product.name,
-            price: product.price,
-            description: product.description || "",
-            category: product.category,
-            image: product.image || "",
-            glbUri: product.glbUri || "",
-            status: "approved",
-          });
+          if (newStatus === "approved") {
+            const collectionMap: Record<string, string> = {
+              Sofa: "livingroom_products",
+              Chair: "livingroom_products",
+              TVStand: "livingroom_products",
+              Bed: "bedroom_products",
+              Wardrobe: "bedroom_products",
+              BedChair: "bedroom_products",
+              officechair: "office_products",
+              laptopstand: "office_products",
+              officedesk: "office_products",
+            };
+
+            const targetParent = collectionMap[product.category];
+            if (targetParent) {
+              const targetRef = doc(firestore, targetParent, product.id);
+              await setDoc(targetRef, {
+                name: product.name,
+                price: product.price,
+                description: product.description || "",
+                category: product.category,
+                image: product.image || "",
+                glbUri: product.glbUri || "",
+                status: "approved",
+              });
+            }
+          }
+
+          showAlert("Success", `Product ${newStatus} successfully!`, "success");
+          await fetchAllCollections();
+        } catch (err) {
+          console.error(err);
+          showAlert("Error", "Failed to update product.", "error");
         }
-      }
-
-      if (product.uploadedBy) {
-        await addDoc(collection(firestore, "notifications"), {
-          userId: product.uploadedBy,
-          message:
-            newStatus === "approved"
-              ? `✅ Your product "${product.name}" has been approved!`
-              : `❌ Your product "${product.name}" has been rejected.`,
-          status: "unread",
-          createdAt: serverTimestamp(),
-        });
-      }
-
-      Alert.alert("Success", `Product ${newStatus}`);
-      await fetchAllProducts();
-    } catch (err) {
-      console.error(err);
-      Alert.alert("Error", "Failed to update product.");
-    }
+      },
+      true
+    );
   };
 
-  // --- Approve/reject payment ---
-  // --- Approve/reject payment ---
-  const handlePaymentApproval = async (
-    payment: Payment,
-    newStatus: "approved" | "declined"
-  ) => {
-    try {
-      // ✅ Compute total amount properly
-      const amount = payment.isBulk
-        ? payment.products?.reduce((sum, x) => sum + x.price * x.quantity, 0) ||
-          0
-        : (payment.price || 0) * (payment.quantity || 0);
-
-      const paymentRef = doc(firestore, "payments", payment.id);
-      await updateDoc(paymentRef, {
-        status: newStatus,
-        amount, // 🔥 Store computed amount here
-        updatedAt: serverTimestamp(),
-      });
-
-      // ✅ Notify user
-      await addDoc(collection(firestore, "notifications"), {
-        userId: payment.userId,
-        message:
-          newStatus === "approved"
-            ? `✅ Your payment for ${
-                payment.isBulk ? "bulk items" : `"${payment.productName}"`
-              } (₱${amount}) has been approved.`
-            : `❌ Your payment for ${
-                payment.isBulk ? "bulk items" : `"${payment.productName}"`
-              } has been declined.`,
-        status: "unread",
-        createdAt: serverTimestamp(),
-      });
-
-      Alert.alert("Success", `Payment ${newStatus}`);
-    } catch (err) {
-      console.error(err);
-      Alert.alert("Error", "Failed to update payment.");
-    }
+  const handleViewChange = (newView: AdminView) => {
+    setView(newView);
+    setSidebarOpen(false);
   };
-
-  // --- Render products ---
-  const renderProducts = (list: Product[], isPending: boolean) =>
+  const statusStyles: Record<string, any> = {
+    pending: styles.status_pending,
+    approved: styles.status_approved,
+    rejected: styles.status_rejected,
+  };
+  const renderProducts = (list: Product[], showApproval: boolean) =>
     list.map((p) => (
       <View key={p.id} style={styles.card}>
-        <Text style={styles.name}>{p.name}</Text>
-        <Text style={styles.description}>{p.description}</Text>
-        <Text style={styles.price}>₱{p.price}</Text>
-        <Text style={styles.category}>Category: {p.category}</Text>
-        <Text style={styles.status}>Status: {p.status}</Text>
-        {isPending && (
-          <View style={styles.actions}>
+        <View style={styles.cardHeader}>
+          <Text style={styles.cardTitle}>{p.name}</Text>
+
+          <View style={[styles.statusBadge, statusStyles[p.status]]}>
+            <Text style={styles.statusText}>{p.status}</Text>
+          </View>
+        </View>
+        <View style={styles.cardContent}>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Category:</Text>
+            <Text style={styles.infoValue}>{p.category}</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Price:</Text>
+            <Text style={styles.priceValue}>₱{p.price.toLocaleString()}</Text>
+          </View>
+        </View>
+        {showApproval && (
+          <View style={styles.approvalButtons}>
             <TouchableOpacity
+              style={[styles.actionButton, styles.approveButton]}
               onPress={() => handleProductApproval(p, "approved")}
-              style={[styles.button, { backgroundColor: "#6AA84F" }]}
             >
-              <Text style={styles.buttonText}>Approve</Text>
+              <Text style={styles.actionButtonText}>✓ Approve</Text>
             </TouchableOpacity>
             <TouchableOpacity
+              style={[styles.actionButton, styles.rejectButton]}
               onPress={() => handleProductApproval(p, "rejected")}
-              style={[styles.button, { backgroundColor: "#CC0000" }]}
             >
-              <Text style={styles.buttonText}>Reject</Text>
+              <Text style={styles.actionButtonText}>✕ Reject</Text>
             </TouchableOpacity>
           </View>
         )}
+        <TouchableOpacity
+          style={[styles.actionButton, styles.deleteButton]}
+          onPress={() => handleDelete("products", p.id)}
+        >
+          <Text style={styles.actionButtonText}>🗑 Delete</Text>
+        </TouchableOpacity>
       </View>
     ));
 
-  // --- Render payments ---
-  // --- Render payments ---
-  const renderPayments = (list: Payment[], isPending: boolean) =>
-    list.map((p) => {
-      let totalAmount = 0;
-
-      // ✅ Prefer Firestore’s stored amount or totalPrice first
-      if (p.amount && Number(p.amount) > 0) {
-        totalAmount = Number(p.amount);
-      } else if (p.totalPrice && Number(p.totalPrice) > 0) {
-        totalAmount = Number(p.totalPrice);
-      }
-      // ✅ If not available, compute manually
-      else if (p.isBulk && Array.isArray(p.products) && p.products.length > 0) {
-        totalAmount = p.products.reduce(
-          (sum, x) => sum + (Number(x.price) || 0) * (Number(x.quantity) || 1),
-          0
-        );
-      } else {
-        totalAmount = (Number(p.price) || 0) * (Number(p.quantity) || 0);
-      }
-
-      return (
-        <View key={p.id} style={styles.card}>
-          <Text style={styles.name}>
-            {p.isBulk ? "Bulk Payment" : p.productName}
+  const renderUsers = () =>
+    users.map((u) => (
+      <View key={u.id} style={styles.card}>
+        <View style={styles.cardHeader}>
+          <Text style={styles.cardTitle}>
+            {u.username || u.name || "No Name"}
           </Text>
-          {p.isBulk && (
-            <Text style={styles.description}>
-              Products: {p.products?.map((x) => x.name).join(", ")}
-            </Text>
-          )}
-          <Text style={styles.price}>₱{totalAmount.toLocaleString()}</Text>
-          <Text style={styles.status}>Status: {p.status}</Text>
-
-          {/* If pending → Approve/Decline buttons */}
-          {isPending && (
-            <View style={styles.actions}>
-              <TouchableOpacity
-                onPress={() => handlePaymentApproval(p, "approved")}
-                style={[styles.button, { backgroundColor: "#6AA84F" }]}
-              >
-                <Text style={styles.buttonText}>Approve</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => handlePaymentApproval(p, "declined")}
-                style={[styles.button, { backgroundColor: "#CC0000" }]}
-              >
-                <Text style={styles.buttonText}>Decline</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* ✅ Liquidate button for approved payments */}
-          {!isPending && p.status === "approved" && (
-            <TouchableOpacity
-              style={styles.liquidateBtn}
-              onPress={async () => {
-                try {
-                  const paymentRef = doc(firestore, "payments", p.id);
-                  const snap = await getDoc(paymentRef);
-
-                  if (!snap.exists()) {
-                    Alert.alert("Error", "Payment not found.");
-                    return;
-                  }
-
-                  const paymentData = snap.data();
-                  if (paymentData?.liquidated) {
-                    Alert.alert(
-                      "Already Done",
-                      "This payment is already liquidated."
-                    );
-                    return;
-                  }
-
-                  // ✅ Compute total amount again to ensure alignment
-                  const totalAmount =
-                    p.amount && Number(p.amount) > 0
-                      ? Number(p.amount)
-                      : p.totalPrice && Number(p.totalPrice) > 0
-                      ? Number(p.totalPrice)
-                      : p.isBulk && Array.isArray(p.products)
-                      ? p.products.reduce(
-                          (sum, x) =>
-                            sum +
-                            (Number(x.price) || 0) * (Number(x.quantity) || 1),
-                          0
-                        )
-                      : (Number(p.price) || 0) * (Number(p.quantity) || 0);
-
-                  // ✅ Compute commissions
-                  const adminRate = 0.1; // 10% commission
-                  const adminCommission = totalAmount * adminRate;
-                  const sellerEarnings = totalAmount - adminCommission;
-
-                  // ✅ Update payment doc with liquidation info + aligned amount
-                  await updateDoc(paymentRef, {
-                    liquidated: true,
-                    liquidatedAt: serverTimestamp(),
-                    amount: totalAmount,
-                    adminCommission,
-                    sellerEarnings,
-                  });
-
-                  // ✅ Record liquidation history
-                  await addDoc(collection(firestore, "liquidations"), {
-                    paymentId: p.id,
-                    sellerId: paymentData?.sellerId || "",
-                    amount: totalAmount,
-                    adminCommission,
-                    sellerEarnings,
-                    status: "completed",
-                    createdAt: serverTimestamp(),
-                  });
-
-                  // ✅ Notify seller
-                  if (paymentData?.sellerId) {
-                    await addDoc(collection(firestore, "notifications"), {
-                      userId: paymentData.sellerId,
-                      message: `💸 Your payment for ${
-                        p.productName || "items"
-                      } has been liquidated. Earnings: ₱${sellerEarnings.toFixed(
-                        2
-                      )}`,
-                      status: "unread",
-                      createdAt: serverTimestamp(),
-                    });
-                  }
-
-                  Alert.alert("Success", "Payment liquidated successfully!");
-                } catch (err) {
-                  console.error(err);
-                  Alert.alert("Error", "Failed to liquidate payment.");
-                }
-              }}
-            >
-              <Text style={styles.liquidateBtnText}>💸 Liquidate</Text>
-            </TouchableOpacity>
-          )}
+          <View style={[styles.statusBadge, styles.roleBadge]}>
+            <Text style={styles.statusText}>{u.role || "User"}</Text>
+          </View>
         </View>
-      );
-    });
+        <View style={styles.cardContent}>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Email:</Text>
+            <Text style={styles.infoValue}>{u.email || "N/A"}</Text>
+          </View>
+        </View>
+        <TouchableOpacity
+          style={[styles.actionButton, styles.deleteButton]}
+          onPress={() => handleDelete("users", u.id)}
+        >
+          <Text style={styles.actionButtonText}>🗑 Delete</Text>
+        </TouchableOpacity>
+      </View>
+    ));
 
   if (loading)
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#3E2E22" />
-      </View>
-    );
-  if (!isAdmin)
-    return (
-      <View style={styles.center}>
-        <Text>You are not authorized to access this screen.</Text>
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#6366F1" />
+        <Text style={styles.loadingText}>Loading Dashboard...</Text>
       </View>
     );
 
-  // Filter view
+  if (!isAdmin)
+    return (
+      <View style={styles.loadingContainer}>
+        <Text style={styles.errorText}>⛔ Not Authorized</Text>
+      </View>
+    );
+
   let content: JSX.Element[] = [];
+  let viewTitle = "";
+
   switch (view) {
     case "pendingProducts":
       content = renderProducts(pendingProducts, true);
+      viewTitle = "Pending Products";
       break;
     case "approvedProducts":
       content = renderProducts(approvedProducts, false);
+      viewTitle = "Approved Products";
       break;
     case "rejectedProducts":
       content = renderProducts(rejectedProducts, false);
+      viewTitle = "Rejected Products";
       break;
-    case "pendingPayments":
-      content = renderPayments(
-        payments.filter((p) => p.status === "pending"),
-        true
-      );
+    case "allProducts":
+      content = renderProducts(allProducts, false);
+      viewTitle = "All Products";
       break;
-    case "approvedPayments":
-      content = renderPayments(
-        payments.filter((p) => p.status === "approved"),
-        false
-      );
-      break;
-    case "declinedPayments":
-      content = renderPayments(
-        payments.filter((p) => p.status === "declined"),
-        false
-      );
-      break;
-
-    case "buyerReceived":
-      content = receivedOrders.map((r) => (
-        <View key={r.id} style={styles.card}>
-          <Text style={styles.name}>Buyer: {r.buyerInfo?.username}</Text>
-          <Text style={styles.description}>
-            Contact: {r.buyerInfo?.contactNo}
-          </Text>
-          <Text style={styles.description}>
-            Seller: {r.sellerInfo?.username}
-          </Text>
-          <Text style={styles.price}>Amount: ₱{r.amount || "N/A"}</Text>
-          <Text style={styles.status}>
-            Status: {r.status || "Approved"} ✅ Received
-          </Text>
-          <Text style={styles.description}>
-            Reference: {r.referenceId || "N/A"}
-          </Text>
-          <Text style={styles.description}>
-            Items:{" "}
-            {r.cartItems
-              ? r.cartItems
-                  .map((x: any) => `${x.name} x${x.quantity}`)
-                  .join(", ")
-              : r.productName || "N/A"}
-          </Text>
-          <Text style={styles.description}>
-            Received Date:{" "}
-            {r.updatedAt?.toDate
-              ? r.updatedAt.toDate().toLocaleString()
-              : r.createdAt?.toDate
-              ? r.createdAt.toDate().toLocaleString()
-              : "N/A"}
-          </Text>
-        </View>
-      ));
+    case "users":
+      content = renderUsers();
+      viewTitle = "Users";
       break;
   }
 
-  return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.title}>Admin Dashboard</Text>
+  const tabs = [
+    { key: "users", label: "Users", icon: "👥", count: users.length },
+    {
+      key: "allProducts",
+      label: "All Products",
+      icon: "📦",
+      count: allProducts.length,
+    },
+    {
+      key: "pendingProducts",
+      label: "Pending",
+      icon: "⏳",
+      count: pendingProducts.length,
+    },
+    {
+      key: "approvedProducts",
+      label: "Approved",
+      icon: "✅",
+      count: approvedProducts.length,
+    },
+    {
+      key: "rejectedProducts",
+      label: "Rejected",
+      icon: "❌",
+      count: rejectedProducts.length,
+    },
+  ];
 
-      {/* Tabs */}
-      <View style={styles.tabRow}>
-        <TouchableOpacity onPress={() => setView("pendingProducts")}>
-          <Text
-            style={[styles.tab, view === "pendingProducts" && styles.activeTab]}
+  const sidebarWidth = sidebarAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 240],
+  });
+
+  return (
+    <View style={styles.container}>
+      <CustomAlert {...alertConfig} />
+
+      {/* Header */}
+      <View style={styles.header}>
+        <View style={styles.headerLeft}>
+          <TouchableOpacity
+            onPress={() => setSidebarOpen((prev) => !prev)}
+            style={styles.menuButton}
           >
-            Pending Products
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => setView("approvedProducts")}>
-          <Text
-            style={[
-              styles.tab,
-              view === "approvedProducts" && styles.activeTab,
-            ]}
-          >
-            Approved Products
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => setView("rejectedProducts")}>
-          <Text
-            style={[
-              styles.tab,
-              view === "rejectedProducts" && styles.activeTab,
-            ]}
-          >
-            Rejected Products
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => setView("pendingPayments")}>
-          <Text
-            style={[styles.tab, view === "pendingPayments" && styles.activeTab]}
-          >
-            Pending Payments
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => setView("approvedPayments")}>
-          <Text
-            style={[
-              styles.tab,
-              view === "approvedPayments" && styles.activeTab,
-            ]}
-          >
-            Approved Payments
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => setView("declinedPayments")}>
-          <Text
-            style={[
-              styles.tab,
-              view === "declinedPayments" && styles.activeTab,
-            ]}
-          >
-            Declined Payments
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => setView("buyerReceived")}>
-          <Text
-            style={[styles.tab, view === "buyerReceived" && styles.activeTab]}
-          >
-            Buyer Received
-          </Text>
+            <Text style={styles.menuIcon}>☰</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Admin Dashboard</Text>
+        </View>
+        <TouchableOpacity
+          style={styles.logoutButton}
+          onPress={() => {
+            showAlert(
+              "Logout",
+              "Are you sure you want to log out?",
+              "warning",
+              async () => {
+                try {
+                  await signOut(auth);
+                  showAlert(
+                    "Success",
+                    "You have been logged out.",
+                    "success",
+                    () => {
+                      goToScreen("lreg");
+                    }
+                  );
+                } catch (err) {
+                  console.error(err);
+                  showAlert("Error", "Failed to log out.", "error");
+                }
+              },
+              true
+            );
+          }}
+        >
+          <Text style={styles.logoutButtonText}>⎋</Text>
         </TouchableOpacity>
       </View>
 
-      {content.length > 0 ? (
-        content
-      ) : (
-        <Text style={styles.noDataText}>No items in this view.</Text>
-      )}
+      <View style={styles.dashboardContainer}>
+        <Animated.View style={[styles.sidebar, { width: sidebarWidth }]}>
+          <ScrollView showsVerticalScrollIndicator={false}>
+            <View style={styles.sidebarHeader}>
+              <Text style={styles.sidebarHeaderText}>Shopfur</Text>
+            </View>
+            {tabs.map((tab) => (
+              <TouchableOpacity
+                key={tab.key}
+                onPress={() => handleViewChange(tab.key as AdminView)}
+                style={[
+                  styles.sidebarItem,
+                  view === tab.key && styles.activeSidebarItem,
+                ]}
+              >
+                <View style={styles.sidebarItemContent}>
+                  <View style={styles.sidebarItemLeft}>
+                    <Text style={styles.sidebarIcon}>{tab.icon}</Text>
+                    <Text
+                      style={[
+                        styles.sidebarItemText,
+                        view === tab.key && styles.activeSidebarItemText,
+                      ]}
+                    >
+                      {tab.label}
+                    </Text>
+                  </View>
+                  <View style={styles.countBadge}>
+                    <Text style={styles.countText}>{tab.count}</Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </Animated.View>
 
-      <TouchableOpacity
-        style={styles.logoutButton}
-        onPress={async () => {
-          await signOut(auth);
-          goToScreen("lreg");
-        }}
-      >
-        <Text style={styles.buttonText}>Logout</Text>
-      </TouchableOpacity>
-    </ScrollView>
+        <View style={styles.mainContent}>
+          <View style={styles.contentHeader}>
+            <Text style={styles.contentTitle}>{viewTitle}</Text>
+            <Text style={styles.contentSubtitle}>
+              {content.length} {content.length === 1 ? "item" : "items"}
+            </Text>
+          </View>
+          <ScrollView
+            style={styles.contentScroll}
+            showsVerticalScrollIndicator={false}
+          >
+            {content.length > 0 ? (
+              content
+            ) : (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyStateText}>📭</Text>
+                <Text style={styles.emptyStateTitle}>No items found</Text>
+                <Text style={styles.emptyStateSubtitle}>
+                  There are no items to display in this category.
+                </Text>
+              </View>
+            )}
+          </ScrollView>
+        </View>
+      </View>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { padding: 20, backgroundColor: "#F5F0E1" },
-  title: {
-    fontSize: 26,
-    fontWeight: "700",
-    marginBottom: 20,
-    color: "#3E2E22",
+  container: {
+    flex: 1,
+    backgroundColor: "#F3F4F6",
   },
-  card: {
-    backgroundColor: "#FFF8F0",
-    padding: 18,
-    marginBottom: 15,
-    borderRadius: 12,
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: "#FFFFFF",
+    borderBottomWidth: 1,
+    borderBottomColor: "#E5E7EB",
     shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
     elevation: 3,
   },
-  name: { fontSize: 20, fontWeight: "bold", color: "#3E2E22", marginBottom: 4 },
-  description: { fontSize: 14, color: "#6B5B4B", marginBottom: 4 },
-  price: { fontSize: 16, color: "#6AA84F", fontWeight: "600", marginBottom: 4 },
-  category: { fontSize: 14, color: "#8B6E4F", marginBottom: 2 },
-  status: { fontSize: 14, color: "#3E2E22", marginBottom: 8 },
-  actions: { flexDirection: "row", marginTop: 10 },
-  button: { flex: 1, padding: 10, marginHorizontal: 5, borderRadius: 8 },
-  buttonText: { color: "#fff", textAlign: "center", fontWeight: "600" },
-  logoutButton: {
-    backgroundColor: "#3E2E22",
-    padding: 14,
-    borderRadius: 10,
-    marginTop: 30,
-    marginBottom: 40,
+  headerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
   },
-  center: {
+  menuButton: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: "#F9FAFB",
+  },
+  menuIcon: {
+    fontSize: 24,
+    color: "#374151",
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  logoutButton: {
+    backgroundColor: "#EF4444",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    shadowColor: "#EF4444",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  logoutButtonText: {
+    color: "#FFFFFF",
+    fontWeight: "600",
+    fontSize: 14,
+  },
+
+  dashboardContainer: {
+    flex: 1,
+    flexDirection: "row",
+  },
+  sidebar: {
+    backgroundColor: "#FFFFFF",
+    borderRightWidth: 1,
+    borderRightColor: "#E5E7EB",
+    overflow: "hidden",
+  },
+  sidebarHeader: {
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E5E7EB",
+  },
+  sidebarHeaderText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#6B7280",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  sidebarItem: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginHorizontal: 12,
+    marginVertical: 4,
+    borderRadius: 8,
+  },
+  activeSidebarItem: {
+    backgroundColor: "#EEF2FF",
+  },
+  sidebarItemContent: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  sidebarItemLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  sidebarIcon: {
+    fontSize: 18,
+  },
+  sidebarItemText: {
+    color: "#4B5563",
+    fontSize: 15,
+    fontWeight: "500",
+  },
+  activeSidebarItemText: {
+    fontWeight: "700",
+    color: "#6366F1",
+  },
+  countBadge: {
+    backgroundColor: "#F3F4F6",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+    minWidth: 28,
+    alignItems: "center",
+  },
+  countText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#6B7280",
+  },
+
+  mainContent: {
+    flex: 1,
+    backgroundColor: "#F9FAFB",
+  },
+  contentHeader: {
+    padding: 24,
+    backgroundColor: "#FFFFFF",
+    borderBottomWidth: 1,
+    borderBottomColor: "#E5E7EB",
+  },
+  contentTitle: {
+    fontSize: 28,
+    fontWeight: "700",
+    color: "#111827",
+    marginBottom: 4,
+  },
+  contentSubtitle: {
+    fontSize: 14,
+    color: "#6B7280",
+  },
+  contentScroll: {
+    flex: 1,
+    padding: 20,
+  },
+
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: "#F3F4F6",
+  },
+  cardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111827",
+    flex: 1,
+  },
+  statusBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  status_pending: {
+    backgroundColor: "#FEF3C7",
+  },
+  status_approved: {
+    backgroundColor: "#D1FAE5",
+  },
+  status_rejected: {
+    backgroundColor: "#FEE2E2",
+  },
+  roleBadge: {
+    backgroundColor: "#E0E7FF",
+  },
+  statusText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#374151",
+    textTransform: "capitalize",
+  },
+  cardContent: {
+    gap: 10,
+    marginBottom: 16,
+  },
+  infoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  infoLabel: {
+    fontSize: 14,
+    color: "#6B7280",
+    width: 80,
+    fontWeight: "500",
+  },
+  infoValue: {
+    fontSize: 14,
+    color: "#374151",
+    flex: 1,
+  },
+  priceValue: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#10B981",
+  },
+  approvalButtons: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 10,
+  },
+  actionButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  approveButton: {
+    backgroundColor: "#10B981",
+  },
+  rejectButton: {
+    backgroundColor: "#F59E0B",
+  },
+  deleteButton: {
+    backgroundColor: "#EF4444",
+    marginTop: 0,
+  },
+  actionButtonText: {
+    color: "#FFFFFF",
+    fontWeight: "600",
+    fontSize: 14,
+  },
+
+  emptyState: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 60,
+  },
+  emptyStateText: {
+    fontSize: 64,
+    marginBottom: 16,
+  },
+  emptyStateTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#374151",
+    marginBottom: 8,
+  },
+  emptyStateSubtitle: {
+    fontSize: 14,
+    color: "#9CA3AF",
+    textAlign: "center",
+  },
+
+  loadingContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 20,
+    backgroundColor: "#F9FAFB",
   },
-  tabRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-    marginBottom: 20,
-  },
-  tab: {
-    fontSize: 14,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    color: "#7D6C5E",
-    marginBottom: 6,
-  },
-  activeTab: {
-    fontWeight: "700",
-    color: "#3E2E22",
-    textDecorationLine: "underline",
-  },
-  noDataText: {
-    textAlign: "center",
+  loadingText: {
+    marginTop: 16,
     fontSize: 16,
-    color: "#8B6E4F",
-    marginVertical: 20,
+    color: "#6B7280",
+    fontWeight: "500",
   },
-  liquidateBtn: {
-    marginTop: 10,
-    backgroundColor: "#6B4F3B",
-    padding: 10,
-    borderRadius: 8,
-    alignItems: "center",
-  },
-  liquidateBtnText: {
-    color: "#FFF8E1",
+  errorText: {
+    color: "#EF4444",
+    fontSize: 20,
     fontWeight: "700",
   },
 });

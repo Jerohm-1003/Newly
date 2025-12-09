@@ -5,7 +5,10 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  Alert,
+  ScrollView,
+  StatusBar,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import {
   createUserWithEmailAndPassword,
@@ -18,9 +21,22 @@ import { GoogleSignin } from "@react-native-google-signin/google-signin";
 import { auth, firestore } from "../firebase/firebaseConfig";
 import { doc, setDoc, getDoc } from "firebase/firestore";
 import { Screen } from "./App";
+import CustomAlert from "./CustomAlert";
 
 interface Props {
   goToScreen: (screen: Screen, params?: any) => void;
+}
+
+interface AlertState {
+  visible: boolean;
+  type: "success" | "error" | "warning" | "info" | "question";
+  title: string;
+  message: string;
+  confirmText?: string;
+  cancelText?: string;
+  onConfirm: () => void;
+  onCancel?: () => void;
+  showCancel?: boolean;
 }
 
 const LRegScreen: React.FC<Props> = ({ goToScreen }) => {
@@ -32,6 +48,62 @@ const LRegScreen: React.FC<Props> = ({ goToScreen }) => {
     confirm: "",
   });
 
+  // Color Palette - Theme
+  const colors = {
+    primary: "#2D2416",
+    secondary: "#8B7355",
+    accent: "#D4A574",
+    background: "#FAF8F5",
+    cardBg: "#FFFFFF",
+    textPrimary: "#1A1A1A",
+    textSecondary: "#6B6B6B",
+    border: "#E8E8E8",
+    success: "#4CAF50",
+    error: "#FF3B30",
+  };
+
+  // Custom Alert State
+  const [alertState, setAlertState] = useState<AlertState>({
+    visible: false,
+    type: "info",
+    title: "",
+    message: "",
+    onConfirm: () => {},
+    showCancel: false,
+  });
+
+  // Helper function to show custom alert
+  const showAlert = (
+    type: AlertState["type"],
+    title: string,
+    message: string,
+    onConfirm: () => void = () => {},
+    showCancel = false,
+    onCancel?: () => void,
+    confirmText = "OK",
+    cancelText = "Cancel"
+  ) => {
+    setAlertState({
+      visible: true,
+      type,
+      title,
+      message,
+      confirmText,
+      cancelText,
+      onConfirm: () => {
+        onConfirm();
+        setAlertState((prev) => ({ ...prev, visible: false }));
+      },
+      onCancel: onCancel
+        ? () => {
+            onCancel();
+            setAlertState((prev) => ({ ...prev, visible: false }));
+          }
+        : undefined,
+      showCancel,
+    });
+  };
+
   useEffect(() => {
     GoogleSignin.configure({
       webClientId:
@@ -39,7 +111,7 @@ const LRegScreen: React.FC<Props> = ({ goToScreen }) => {
     });
   }, []);
 
-  // ✅ Password validator
+  // Password validator
   const validatePassword = (password: string) => {
     return {
       length: password.length >= 8,
@@ -52,10 +124,10 @@ const LRegScreen: React.FC<Props> = ({ goToScreen }) => {
     };
   };
 
-  // ✅ Email/password submit
+  // Email/password submit
   const handleSubmit = async () => {
     if (!form.email || !form.password) {
-      Alert.alert("Error", "Please fill in all fields.");
+      showAlert("warning", "Missing Information", "Please fill in all fields.");
       return;
     }
 
@@ -64,11 +136,19 @@ const LRegScreen: React.FC<Props> = ({ goToScreen }) => {
         const reqs = validatePassword(form.password);
         const allPassed = Object.values(reqs).every((v) => v);
         if (!allPassed) {
-          Alert.alert("Error", "Password does not meet requirements.");
+          showAlert(
+            "error",
+            "Weak Password",
+            "Password does not meet all security requirements."
+          );
           return;
         }
         if (form.password !== form.confirm) {
-          Alert.alert("Error", "Passwords do not match.");
+          showAlert(
+            "error",
+            "Password Mismatch",
+            "Passwords do not match. Please try again."
+          );
           return;
         }
 
@@ -82,11 +162,17 @@ const LRegScreen: React.FC<Props> = ({ goToScreen }) => {
         await setDoc(doc(firestore, "users", user.uid), {
           username: form.username,
           email: form.email,
-          role: "user", // default role
+          role: "user",
         });
 
-        Alert.alert("Success", "Account created.");
-        goToScreen("profileSetup", { uid: user.uid, email: user.email });
+        showAlert(
+          "success",
+          "Account Created",
+          "Your account has been created successfully!",
+          () => {
+            goToScreen("profileSetup", { uid: user.uid, email: user.email });
+          }
+        );
       } else {
         const userCredential = await signInWithEmailAndPassword(
           auth,
@@ -97,21 +183,42 @@ const LRegScreen: React.FC<Props> = ({ goToScreen }) => {
 
         const userDoc = await getDoc(doc(firestore, "users", user.uid));
         if (!userDoc.exists()) {
-          Alert.alert("Error", "No user record found in Firestore.");
+          showAlert(
+            "error",
+            "User Not Found",
+            "No user record found in our system."
+          );
           return;
         }
 
         const role = userDoc.data()?.role?.toLowerCase?.() || "user";
 
-        Alert.alert("Success", "Logged in.");
-        if (role === "admin") {
-          goToScreen("adminDashb");
-        } else {
-          goToScreen("home");
-        }
+        showAlert(
+          "success",
+          "Welcome Back",
+          "You have successfully logged in!",
+          () => {
+            if (role === "admin") {
+              goToScreen("adminDashb");
+            } else if (role === "seller") {
+              goToScreen("SellerPart"); // 👈 route to your seller screen
+            } else {
+              goToScreen("home");
+            }
+          }
+        );
       }
     } catch (error: any) {
-      Alert.alert("Firebase Error", error.message);
+      const errorMessage =
+        error.code === "auth/user-not-found"
+          ? "No account found with this email."
+          : error.code === "auth/wrong-password"
+          ? "Incorrect password. Please try again."
+          : error.code === "auth/email-already-in-use"
+          ? "This email is already registered."
+          : error.message;
+
+      showAlert("error", "Authentication Error", errorMessage);
     }
   };
 
@@ -122,7 +229,11 @@ const LRegScreen: React.FC<Props> = ({ goToScreen }) => {
       const { idToken, accessToken } = await GoogleSignin.getTokens();
 
       if (!idToken) {
-        Alert.alert("Google Sign-In Error", "No ID token returned.");
+        showAlert(
+          "error",
+          "Google Sign-In Failed",
+          "No authentication token received."
+        );
         return;
       }
 
@@ -148,247 +259,549 @@ const LRegScreen: React.FC<Props> = ({ goToScreen }) => {
         (userDoc.exists() ? userDoc.data()?.role : "user")?.toLowerCase() ||
         "user";
 
-      Alert.alert("Success", "Logged in with Google.");
-      if (role === "admin") {
-        goToScreen("adminDashb");
-      } else {
-        goToScreen("home");
-      }
+      showAlert(
+        "success",
+        "Welcome",
+        "Successfully signed in with Google!",
+        () => {
+          if (role === "admin") {
+            goToScreen("adminDashb");
+          } else if (role === "seller") {
+            goToScreen("SellerPart"); // 👈 route seller to SellerPart
+          } else {
+            goToScreen("home");
+          }
+        }
+      );
     } catch (error: any) {
-      Alert.alert("Google Sign-In Error", error.message);
+      showAlert(
+        "error",
+        "Google Sign-In Error",
+        error.message || "Failed to sign in with Google."
+      );
     }
   };
 
-  // ✅ Forgot password
+  // Forgot password
   const handleForgotPassword = async () => {
     if (!form.email) {
-      Alert.alert("Error", "Please enter your email first.");
+      showAlert(
+        "warning",
+        "Email Required",
+        "Please enter your email address first."
+      );
       return;
     }
     try {
       await sendPasswordResetEmail(auth, form.email);
-      Alert.alert(
+      showAlert(
+        "success",
         "Email Sent",
-        "A password reset link has been sent to your email."
+        "A password reset link has been sent to your email address."
       );
     } catch (error: any) {
-      Alert.alert("Reset Error", error.message);
+      showAlert(
+        "error",
+        "Reset Failed",
+        error.message || "Failed to send reset email."
+      );
     }
   };
 
+  const getPasswordStrength = () => {
+    if (form.password.length === 0) return null;
+    const reqs = validatePassword(form.password);
+    const passed = Object.values(reqs).filter((v) => v).length;
+    const total = Object.values(reqs).length;
+    const percentage = (passed / total) * 100;
+
+    if (percentage < 40) return { label: "Weak", color: colors.error };
+    if (percentage < 70) return { label: "Fair", color: "#FFA500" };
+    if (percentage < 100) return { label: "Good", color: "#FFD700" };
+    return { label: "Strong", color: colors.success };
+  };
+
+  const passwordStrength = getPasswordStrength();
+
   return (
-    <View style={styles.container}>
-      <TouchableOpacity
-        onPress={() => goToScreen("home")}
-        style={styles.backButton}
-      >
-        <Text style={styles.backButtonText}>←</Text>
-      </TouchableOpacity>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <StatusBar
+          barStyle="dark-content"
+          backgroundColor={colors.background}
+        />
 
-      <Text style={styles.title}>{isRegister ? "Register" : "Login"}</Text>
+        {/* Custom Alert Component */}
+        <CustomAlert
+          visible={alertState.visible}
+          type={alertState.type}
+          title={alertState.title}
+          message={alertState.message}
+          confirmText={alertState.confirmText}
+          cancelText={alertState.cancelText}
+          onConfirm={alertState.onConfirm}
+          onCancel={alertState.onCancel}
+          showCancel={alertState.showCancel}
+        />
 
-      {isRegister && (
-        <>
-          <Text style={styles.label}>Username</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Enter your username"
-            value={form.username}
-            onChangeText={(text) => setForm({ ...form, username: text })}
-          />
-        </>
-      )}
-
-      <Text style={styles.label}>Email</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Enter your email"
-        value={form.email}
-        onChangeText={(text) => setForm({ ...form, email: text })}
-      />
-
-      <Text style={styles.label}>Password</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Enter your password"
-        secureTextEntry
-        value={form.password}
-        onChangeText={(text) => setForm({ ...form, password: text })}
-      />
-
-      {isRegister && form.password.length > 0 && (
-        <View style={styles.reqs}>
-          {Object.entries(validatePassword(form.password)).map(([key, met]) => (
-            <Text
-              key={key}
-              style={[styles.requirement, { color: met ? "green" : "red" }]}
-            >
-              {met ? "✔ " : "✘ "}
-              {key === "upperLower"
-                ? "Must contain uppercase & lowercase"
-                : key === "length"
-                ? "At least 8 characters"
-                : key === "number"
-                ? "At least 1 number"
-                : key === "special"
-                ? "At least 1 special character (!@#$%^&*)"
-                : key === "noSpaces"
-                ? "No spaces allowed"
-                : key === "noRepeats"
-                ? "No 3+ repeating characters"
-                : "No common sequences (1234, abcd, qwerty)"}
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity
+            onPress={() => goToScreen("home")}
+            style={styles.backButton}
+          >
+            <Text style={[styles.backIcon, { color: colors.textPrimary }]}>
+              ←
             </Text>
-          ))}
+          </TouchableOpacity>
         </View>
-      )}
 
-      {isRegister && (
-        <>
-          <Text style={styles.label}>Confirm Password</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Re-enter your password"
-            secureTextEntry
-            value={form.confirm}
-            onChangeText={(text) => setForm({ ...form, confirm: text })}
-          />
-        </>
-      )}
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Title Section */}
+          <View style={styles.titleSection}>
+            <Text style={[styles.title, { color: colors.textPrimary }]}>
+              {isRegister ? "Create Account" : "Welcome Back"}
+            </Text>
+            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+              {isRegister ? "Sign up to get started" : "Sign in to continue"}
+            </Text>
+          </View>
 
-      <TouchableOpacity style={styles.button} onPress={handleSubmit}>
-        <Text style={styles.buttonText}>
-          {isRegister ? "Register" : "Login"}
-        </Text>
-      </TouchableOpacity>
+          {/* Form Card */}
+          <View style={[styles.formCard, { backgroundColor: colors.cardBg }]}>
+            {isRegister && (
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.textSecondary }]}>
+                  Username
+                </Text>
+                <TextInput
+                  style={[
+                    styles.input,
+                    {
+                      backgroundColor: colors.background,
+                      borderColor: colors.border,
+                      color: colors.textPrimary,
+                    },
+                  ]}
+                  placeholder="Choose a username"
+                  placeholderTextColor={colors.textSecondary}
+                  value={form.username}
+                  onChangeText={(text) => setForm({ ...form, username: text })}
+                />
+              </View>
+            )}
 
-      {!isRegister && (
-        <TouchableOpacity onPress={handleForgotPassword}>
-          <Text style={styles.forgotText}>Forgot Password?</Text>
-        </TouchableOpacity>
-      )}
+            <View style={styles.inputGroup}>
+              <Text style={[styles.label, { color: colors.textSecondary }]}>
+                Email Address
+              </Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: colors.background,
+                    borderColor: colors.border,
+                    color: colors.textPrimary,
+                  },
+                ]}
+                placeholder="Enter your email"
+                placeholderTextColor={colors.textSecondary}
+                value={form.email}
+                onChangeText={(text) => setForm({ ...form, email: text })}
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
+            </View>
 
-      <TouchableOpacity
-        style={[styles.button, { backgroundColor: "#db4437" }]}
-        onPress={handleGoogleLogin}
-      >
-        <Text style={styles.buttonText}>Sign in with Google</Text>
-      </TouchableOpacity>
+            <View style={styles.inputGroup}>
+              <Text style={[styles.label, { color: colors.textSecondary }]}>
+                Password
+              </Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: colors.background,
+                    borderColor: colors.border,
+                    color: colors.textPrimary,
+                  },
+                ]}
+                placeholder="Enter your password"
+                placeholderTextColor={colors.textSecondary}
+                secureTextEntry
+                value={form.password}
+                onChangeText={(text) => setForm({ ...form, password: text })}
+              />
 
-      <TouchableOpacity onPress={() => setIsRegister((prev) => !prev)}>
-        <Text style={styles.toggleText}>
-          {isRegister
-            ? "Already have an account? Login"
-            : "Don't have an account? Register"}
-        </Text>
-      </TouchableOpacity>
-    </View>
+              {/* Password Strength Indicator */}
+              {isRegister && passwordStrength && (
+                <View style={styles.strengthContainer}>
+                  <View
+                    style={[
+                      styles.strengthBar,
+                      { backgroundColor: colors.border },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.strengthFill,
+                        {
+                          backgroundColor: passwordStrength.color,
+                          width: `${
+                            (Object.values(
+                              validatePassword(form.password)
+                            ).filter((v) => v).length /
+                              7) *
+                            100
+                          }%`,
+                        },
+                      ]}
+                    />
+                  </View>
+                  <Text
+                    style={[
+                      styles.strengthLabel,
+                      { color: passwordStrength.color },
+                    ]}
+                  >
+                    {passwordStrength.label}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* Password Requirements */}
+            {isRegister && form.password.length > 0 && (
+              <View
+                style={[
+                  styles.requirementsCard,
+                  {
+                    backgroundColor: colors.background,
+                    borderColor: colors.border,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.requirementsTitle,
+                    { color: colors.textPrimary },
+                  ]}
+                >
+                  Password Requirements:
+                </Text>
+                {Object.entries(validatePassword(form.password)).map(
+                  ([key, met]) => (
+                    <View key={key} style={styles.requirementRow}>
+                      <Text
+                        style={[
+                          styles.requirementIcon,
+                          { color: met ? colors.success : colors.error },
+                        ]}
+                      >
+                        {met ? "✓" : "✕"}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.requirementText,
+                          {
+                            color: met
+                              ? colors.textPrimary
+                              : colors.textSecondary,
+                          },
+                        ]}
+                      >
+                        {key === "upperLower"
+                          ? "Uppercase & lowercase letters"
+                          : key === "length"
+                          ? "At least 8 characters"
+                          : key === "number"
+                          ? "At least one number"
+                          : key === "special"
+                          ? "Special character (!@#$%^&*)"
+                          : key === "noSpaces"
+                          ? "No spaces"
+                          : key === "noRepeats"
+                          ? "No repeating characters"
+                          : "No common sequences"}
+                      </Text>
+                    </View>
+                  )
+                )}
+              </View>
+            )}
+
+            {isRegister && (
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.textSecondary }]}>
+                  Confirm Password
+                </Text>
+                <TextInput
+                  style={[
+                    styles.input,
+                    {
+                      backgroundColor: colors.background,
+                      borderColor: colors.border,
+                      color: colors.textPrimary,
+                    },
+                  ]}
+                  placeholder="Re-enter your password"
+                  placeholderTextColor={colors.textSecondary}
+                  secureTextEntry
+                  value={form.confirm}
+                  onChangeText={(text) => setForm({ ...form, confirm: text })}
+                />
+              </View>
+            )}
+
+            {/* Submit Button */}
+            <TouchableOpacity
+              style={[styles.submitButton, { backgroundColor: colors.primary }]}
+              onPress={handleSubmit}
+            >
+              <Text style={styles.submitButtonText}>
+                {isRegister ? "Create Account" : "Sign In"}
+              </Text>
+            </TouchableOpacity>
+
+            {/* Forgot Password */}
+            {!isRegister && (
+              <TouchableOpacity
+                onPress={handleForgotPassword}
+                style={styles.forgotButton}
+              >
+                <Text style={[styles.forgotText, { color: colors.accent }]}>
+                  Forgot Password?
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Divider */}
+            <View style={styles.divider}>
+              <View
+                style={[styles.dividerLine, { backgroundColor: colors.border }]}
+              />
+              <Text
+                style={[styles.dividerText, { color: colors.textSecondary }]}
+              >
+                OR
+              </Text>
+              <View
+                style={[styles.dividerLine, { backgroundColor: colors.border }]}
+              />
+            </View>
+
+            {/* Google Sign In */}
+            <TouchableOpacity
+              style={[styles.googleButton, { borderColor: colors.border }]}
+              onPress={handleGoogleLogin}
+            >
+              <Text style={styles.googleIcon}>G</Text>
+              <Text style={[styles.googleText, { color: colors.textPrimary }]}>
+                Continue with Google
+              </Text>
+            </TouchableOpacity>
+
+            {/* Toggle Login/Register */}
+            <TouchableOpacity
+              onPress={() => setIsRegister((prev) => !prev)}
+              style={styles.toggleButton}
+            >
+              <Text
+                style={[styles.toggleText, { color: colors.textSecondary }]}
+              >
+                {isRegister
+                  ? "Already have an account? "
+                  : "Don't have an account? "}
+                <Text style={[styles.toggleLink, { color: colors.primary }]}>
+                  {isRegister ? "Sign In" : "Sign Up"}
+                </Text>
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={{ height: 40 }} />
+        </ScrollView>
+      </View>
+    </KeyboardAvoidingView>
   );
 };
-
-export default LRegScreen;
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 25,
-    paddingTop: 90,
-    backgroundColor: "#F4EDE3", // warm cream
   },
-
+  header: {
+    paddingTop: 48,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  backIcon: {
+    fontSize: 28,
+    fontWeight: "600",
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+  },
+  titleSection: {
+    marginBottom: 32,
+  },
   title: {
-    fontSize: 30,
-    fontWeight: "800",
-    color: "#4B3526", // rich brown
-    textAlign: "center",
-    marginBottom: 30,
-    letterSpacing: 1,
+    fontSize: 32,
+    fontWeight: "700",
+    marginBottom: 8,
   },
-
+  subtitle: {
+    fontSize: 16,
+  },
+  formCard: {
+    borderRadius: 16,
+    padding: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  inputGroup: {
+    marginBottom: 20,
+  },
   label: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#4B3526",
-    marginBottom: 6,
-    marginTop: 10,
+    marginBottom: 8,
   },
-
   input: {
-    backgroundColor: "rgba(255,255,255,0.9)",
     borderWidth: 1,
-    borderColor: "rgba(75, 53, 38, 0.25)",
     borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     fontSize: 15,
-    color: "#3E2A1C",
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    elevation: 2,
   },
-
-  button: {
-    backgroundColor: "rgba(75, 53, 38, 0.85)", // soft brown with transparency
-    borderRadius: 12,
-    paddingVertical: 13,
-    marginTop: 16,
+  strengthContainer: {
+    marginTop: 8,
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    gap: 12,
+  },
+  strengthBar: {
+    flex: 1,
+    height: 6,
+    borderRadius: 3,
+    overflow: "hidden",
+  },
+  strengthFill: {
+    height: "100%",
+    borderRadius: 3,
+  },
+  strengthLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  requirementsCard: {
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+  },
+  requirementsTitle: {
+    fontSize: 13,
+    fontWeight: "600",
+    marginBottom: 12,
+  },
+  requirementRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  requirementIcon: {
+    fontSize: 14,
+    fontWeight: "700",
+    marginRight: 8,
+    width: 16,
+  },
+  requirementText: {
+    fontSize: 13,
+    flex: 1,
+  },
+  submitButton: {
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: "center",
+    marginTop: 8,
     shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
     elevation: 4,
   },
-
-  buttonText: {
-    color: "#FFF8F0",
+  submitButtonText: {
+    color: "#FFFFFF",
     fontSize: 16,
     fontWeight: "700",
-    letterSpacing: 0.5,
   },
-
-  toggleText: {
-    marginTop: 20,
-    textAlign: "center",
-    color: "#6E4C2E",
-    fontWeight: "600",
-    textDecorationLine: "underline",
+  forgotButton: {
+    alignItems: "center",
+    marginTop: 16,
   },
-
   forgotText: {
-    marginTop: 8,
-    textAlign: "center",
-    color: "#8B5E3C",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  divider: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: 24,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+  },
+  dividerText: {
+    paddingHorizontal: 16,
+    fontSize: 14,
     fontWeight: "500",
-    textDecorationLine: "underline",
   },
-
-  backButton: {
-    position: "absolute",
-    top: 50,
-    left: 25,
-    padding: 4, // small touch area, but no background shape
-  },
-
-  backButtonText: {
-    fontSize: 30,
-    color: "#4B3526", // deep brown to match theme
-    fontWeight: "bold",
-  },
-
-  reqs: {
-    backgroundColor: "rgba(255,255,255,0.7)",
-    borderRadius: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    marginBottom: 10,
-    marginTop: 5,
+  googleButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     borderWidth: 1,
-    borderColor: "rgba(75,53,38,0.2)",
+    borderRadius: 12,
+    paddingVertical: 14,
+    gap: 12,
   },
-
-  requirement: {
-    fontSize: 12,
-    fontWeight: "500",
+  googleIcon: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#DB4437",
+  },
+  googleText: {
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  toggleButton: {
+    marginTop: 24,
+    alignItems: "center",
+  },
+  toggleText: {
+    fontSize: 14,
+  },
+  toggleLink: {
+    fontWeight: "700",
   },
 });
+
+export default LRegScreen;

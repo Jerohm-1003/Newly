@@ -9,6 +9,10 @@ import {
   Dimensions,
   TextInput,
   FlatList,
+  ScrollView,
+  StatusBar,
+  Linking,
+  Modal,
 } from "react-native";
 import { collection, getDocs } from "firebase/firestore";
 import { firestore } from "../firebase/firebaseConfig";
@@ -18,7 +22,6 @@ import { auth } from "../firebase/firebaseConfig";
 
 interface HomeScreenProps {
   onEnterShop?: () => void;
-  onCart?: () => void;
   goToScreen: (screen: Screen, params?: any) => void;
 }
 
@@ -29,53 +32,65 @@ interface Product {
   glbUri: string;
   image: string;
   price: number;
+  username?: string;
+  contactNo?: string;
+  material?: string;
+  color?: string;
+  size?: string;
 }
 
-const HomeScreen: React.FC<HomeScreenProps> = ({
-  onEnterShop,
-  onCart,
-  goToScreen,
-}) => {
+const HomeScreen: React.FC<HomeScreenProps> = ({ goToScreen }) => {
   const screenWidth = Dimensions.get("window").width;
   const [menuVisible, setMenuVisible] = useState(false);
   const slideAnim = useRef(new Animated.Value(-screenWidth)).current;
 
   const [products, setProducts] = useState<Product[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [unreadCount, setUnreadCount] = useState(0);
+    const [arGuideVisible, setArGuideVisible] = useState(false);
 
-  // 🔹 Carousel static images
+  const flatListRef = useRef<FlatList<any>>(null);
+
+  // Color Palete / Theme of the app
+  const colors = {
+    primary: "#2D2416",
+    secondary: "#8B7355",
+    accent: "#D4A574",
+    background: "#FAF8F5",
+    cardBg: "#FFFFFF",
+    textPrimary: "#1A1A1A",
+    textSecondary: "#6B6B6B",
+    border: "#E8E8E8",
+  };
+
   const sliderImages = [
     require("../assets/cart_icon.png"),
     require("../assets/Slide1pic.jpg"),
     require("../assets/Slide2pic.jpg"),
     require("../assets/Slide3pic.jpg"),
   ];
-  const [activeIndex, setActiveIndex] = useState(0);
-  const flatListRef = useRef<FlatList<any>>(null);
-  const [unreadCount, setUnreadCount] = useState(0);
 
-  // 🔹 Auto slide effect
+  // Auto slide effect
   useEffect(() => {
     const interval = setInterval(() => {
       const nextIndex = (activeIndex + 1) % sliderImages.length;
       setActiveIndex(nextIndex);
-
       flatListRef.current?.scrollToIndex({
         index: nextIndex,
         animated: true,
       });
-    }, 4000); // slide every 4 seconds
-
+    }, 5000);
     return () => clearInterval(interval);
   }, [activeIndex]);
 
-  // 🔹 Fetch products from multiple collections
+  // Fetch products
   useEffect(() => {
     const fetchProducts = async () => {
       try {
         const collections = [
           "livingroom_products",
-          "dining_products",
+          "office_products",
           "bedroom_products",
         ];
         let allProducts: Product[] = [];
@@ -89,70 +104,44 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
             });
           });
         }
-
         setProducts(allProducts);
       } catch (error) {
         console.error("Error fetching products:", error);
       }
     };
-
     fetchProducts();
   }, []);
 
+  // Notifications listener
   useEffect(() => {
     const user = auth.currentUser;
     if (!user) return;
 
     const q = query(
-      collection(firestore, "notifications"), // top-level collection
-      where("userId", "==", user.uid), // only this user
-      where("status", "==", "unread") // only unread
+      collection(firestore, "notifications"),
+      where("userId", "==", user.uid),
+      where("status", "==", "unread")
     );
 
     const unsub = onSnapshot(q, (snapshot) => {
-      setUnreadCount(snapshot.size); // update badge count
+      setUnreadCount(snapshot.size);
     });
-
     return () => unsub();
   }, []);
-
-  // 🔹 Search filter (check name, category, and glbUri)
   const filteredProducts = products.filter((item) => {
-    const query = searchQuery.toLowerCase();
+    const queryText = searchQuery.toLowerCase();
+
     return (
-      item.name?.toLowerCase().includes(query) ||
-      item.category?.toLowerCase().includes(query) ||
-      item.glbUri?.toLowerCase().includes(query)
+      item.name?.toLowerCase().includes(queryText) ||
+      item.category?.toLowerCase().includes(queryText) ||
+      item.glbUri?.toLowerCase().includes(queryText) ||
+      item.username?.toLowerCase().includes(queryText) ||
+      item.contactNo?.toLowerCase().includes(queryText) ||
+      item.material?.toLowerCase().includes(queryText) ||
+      item.color?.toLowerCase().includes(queryText) ||
+      item.size?.toLowerCase().includes(queryText)
     );
   });
-
-  // 🔹 Handle navigation based on category
-  const handleNavigate = (category: string) => {
-    if (!goToScreen) return;
-
-    switch (category.toLowerCase()) {
-      case "sofa":
-      case "chair":
-      case "tvstand":
-      case "livingroom":
-        goToScreen("livingroom");
-        break;
-
-      case "dining":
-      case "table":
-        goToScreen("droomt");
-        break;
-
-      case "bedroom":
-      case "bed":
-      case "wardrobe":
-        goToScreen("broomt");
-        break;
-
-      default:
-        goToScreen("furniture"); // fallback
-    }
-  };
 
   const toggleMenu = () => {
     if (menuVisible) {
@@ -171,9 +160,44 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
     }
   };
 
+  const categories = [
+    {
+      id: "living",
+      icon: "🛋️",
+      label: "Living Room",
+      screen: "livingroom",
+      gradient: ["#E8DDD3", "#D4C4B7"],
+    },
+
+    {
+      id: "bedroom",
+      icon: "🛏️",
+      label: "Bedroom",
+      screen: "broomt",
+      gradient: ["#C4B4A7", "#B4A497"],
+    },
+    {
+      id: "office",
+      icon: "📚🪑",
+      label: "office",
+      screen: "office",
+      gradient: ["#B4A497", "#A49487"],
+    },
+
+    {
+      id: "ar",
+      icon: "📱",
+      label: "AR View",
+      screen: "furniture",
+      gradient: ["#B4A497", "#A49487"],
+    },
+  ];
+
   return (
-    <View style={styles.container}>
-      {/* Sidebar Drawer Menu */}
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <StatusBar barStyle="light-content" backgroundColor={colors.primary} />
+
+      {/* Modern Sidebar Drawer */}
       {menuVisible && (
         <TouchableOpacity
           style={styles.backdrop}
@@ -181,85 +205,233 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
           onPress={toggleMenu}
         >
           <Animated.View
-            style={[styles.drawer, { transform: [{ translateX: slideAnim }] }]}
+            style={[
+              styles.drawer,
+              {
+                transform: [{ translateX: slideAnim }],
+                backgroundColor: colors.cardBg,
+              },
+            ]}
           >
-            <TouchableOpacity style={styles.backButton} onPress={toggleMenu}>
-              <Text style={styles.backButtonText}>←</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.menuItem}
-              onPress={() => goToScreen?.("furniture")}
-            >
-              <Text style={styles.menuText}>Furniture</Text>
-            </TouchableOpacity>
-
-            <View style={styles.menuItem}>
-              <Text style={styles.menuText}>Help</Text>
+            <View style={styles.drawerHeader}>
+              <TouchableOpacity style={styles.closeButton} onPress={toggleMenu}>
+                <Text
+                  style={[
+                    styles.closeButtonText,
+                    { color: colors.textPrimary },
+                  ]}
+                >
+                  ✕
+                </Text>
+              </TouchableOpacity>
+              <Text style={[styles.drawerTitle, { color: colors.textPrimary }]}>
+                Menu
+              </Text>
             </View>
 
-            <View style={styles.drawerBottomImage}>
+            <View style={styles.drawerContent}>
+              <TouchableOpacity
+                style={styles.drawerItem}
+                onPress={() => {
+                  goToScreen?.("furniture");
+                  toggleMenu();
+                }}
+              >
+                <Text style={styles.drawerItemIcon}>🪑</Text>
+                <Text
+                  style={[styles.drawerItemText, { color: colors.textPrimary }]}
+                >
+                  All Furniture
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.drawerItem}
+                onPress={() => {
+                  goToScreen?.("settings");
+                  toggleMenu();
+                }}
+              >
+                <Text style={styles.drawerItemIcon}>⚙️</Text>
+                <Text
+                  style={[styles.drawerItemText, { color: colors.textPrimary }]}
+                >
+                  Settings
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.drawerItem}>
+                <Text style={styles.drawerItemIcon}>❓</Text>
+                <Text
+                  style={[styles.drawerItemText, { color: colors.textPrimary }]}
+                >
+                  Help & Support
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.drawerFooter}>
               <Image
                 source={require("../assets/cart_icon.png")}
-                style={styles.sfImage}
+                style={styles.drawerLogo}
                 resizeMode="contain"
               />
+              <Text
+                style={[
+                  styles.drawerFooterText,
+                  { color: colors.textSecondary },
+                ]}
+              >
+                ShopFur v1.0
+              </Text>
             </View>
           </Animated.View>
         </TouchableOpacity>
       )}
 
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={toggleMenu}>
-          <Text style={styles.headerIcon}>☰</Text>
+      {/* Modern Header */}
+      <View style={[styles.header, { backgroundColor: colors.primary }]}>
+        <TouchableOpacity style={styles.headerButton} onPress={toggleMenu}>
+          <View style={styles.menuIconContainer}>
+            <View
+              style={[styles.menuLine, { backgroundColor: colors.cardBg }]}
+            />
+            <View
+              style={[
+                styles.menuLine,
+                { backgroundColor: colors.cardBg, width: 18 },
+              ]}
+            />
+            <View
+              style={[styles.menuLine, { backgroundColor: colors.cardBg }]}
+            />
+          </View>
         </TouchableOpacity>
+
         <Image
           source={require("../assets/cart_icon.png")}
-          style={styles.logoImage}
+          style={styles.headerLogo}
           resizeMode="contain"
         />
 
         <TouchableOpacity
-          style={styles.settingsButton}
+          style={styles.headerButton}
           onPress={() => goToScreen("settings")}
         >
-          <Text style={styles.headerIcon}>⚙️</Text>
+          <Text style={styles.settingsIcon}>⚙️</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Search Bar */}
-      <View style={{ padding: 12 }}>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search furniture..."
-          placeholderTextColor="#888"
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
-      </View>
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Modern Search Bar */}
+        <View style={styles.searchContainer}>
+          <View
+            style={[
+              styles.searchWrapper,
+              { backgroundColor: colors.cardBg, borderColor: colors.border },
+            ]}
+          >
+            <Text style={styles.searchIcon}>🔍</Text>
+            <TextInput
+              style={[styles.searchInput, { color: colors.textPrimary }]}
+              placeholder="Search furniture..."
+              placeholderTextColor={colors.textSecondary}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery("")}>
+                <Text
+                  style={[styles.clearIcon, { color: colors.textSecondary }]}
+                >
+                  ✕
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
 
-      {/* Search Results */}
-      {searchQuery.length > 0 ? (
-        <FlatList
-          data={filteredProducts}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.searchResultItem}
-              onPress={() => goToScreen("productDetails", { product: item })}
-            >
-              <Text style={styles.searchResultName}>{item.name}</Text>
-              <Text style={styles.searchResultPrice}>₱{item.price}</Text>
-              <Text style={styles.searchResultCategory}>{item.category}</Text>
-            </TouchableOpacity>
-          )}
-        />
-      ) : (
-        <>
-          {/* Main Content */}
-          <View style={styles.mainContent}>
-            <View style={styles.imageSlider}>
+        {/* Search Results */}
+        {/* Search Results with Images */}
+        {searchQuery.length > 0 ? (
+          <View style={styles.searchResults}>
+            {filteredProducts.map((item) => (
+              <TouchableOpacity
+                key={item.id}
+                style={[
+                  styles.searchResultCard,
+                  {
+                    backgroundColor: colors.cardBg,
+                    borderColor: colors.border,
+                  },
+                ]}
+                onPress={() => goToScreen("productDetails", { product: item })}
+              >
+                <View style={styles.searchResultRow}>
+                  {/* Thumbnail */}
+                  {item.image ? (
+                    <Image
+                      source={{ uri: item.image }}
+                      style={styles.searchResultImage}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View
+                      style={[
+                        styles.searchResultImage,
+                        {
+                          backgroundColor: "#EEE",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        },
+                      ]}
+                    >
+                      <Text style={{ color: "#999", fontSize: 12 }}>
+                        No Image
+                      </Text>
+                    </View>
+                  )}
+
+                  {/* Info */}
+                  <View style={styles.searchResultInfo}>
+                    <Text
+                      style={[
+                        styles.searchResultName,
+                        { color: colors.textPrimary },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {item.name}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.searchResultCategory,
+                        { color: colors.textSecondary },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {item.category}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.searchResultPrice,
+                        { color: colors.accent },
+                      ]}
+                    >
+                      ₱{item.price.toLocaleString()}
+                    </Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : (
+          <>
+            {/* Modern Hero Carousel */}
+            <View style={styles.carouselContainer}>
               <FlatList
                 ref={flatListRef}
                 data={sliderImages}
@@ -268,244 +440,284 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
                 showsHorizontalScrollIndicator={false}
                 onMomentumScrollEnd={(e) => {
                   const index = Math.round(
-                    e.nativeEvent.contentOffset.x / screenWidth
+                    e.nativeEvent.contentOffset.x / (screenWidth - 32)
                   );
                   setActiveIndex(index);
                 }}
                 keyExtractor={(_, index) => index.toString()}
                 renderItem={({ item }) => (
-                  <Image
-                    source={item}
-                    style={[styles.sliderImage, { width: screenWidth - 32 }]}
-                    resizeMode="cover"
-                  />
+                  <View
+                    style={[styles.carouselItem, { width: screenWidth - 32 }]}
+                  >
+                    <Image
+                      source={item}
+                      style={styles.carouselImage}
+                      resizeMode="cover"
+                    />
+                    <View style={styles.carouselOverlay}>
+                      <Text style={styles.carouselTitle}>
+                        Transform Your Space
+                      </Text>
+                      <Text style={styles.carouselSubtitle}>
+                        with AR Technology
+                      </Text>
+                    </View>
+                  </View>
                 )}
               />
 
-              {/* 🔹 Dots Indicator */}
+              {/* Modern Dots Indicator */}
               <View style={styles.dotsContainer}>
                 {sliderImages.map((_, index) => (
                   <View
                     key={index}
                     style={[
                       styles.dot,
-                      { opacity: index === activeIndex ? 1 : 0.3 },
+                      {
+                        width: index === activeIndex ? 24 : 8,
+                        backgroundColor:
+                          index === activeIndex
+                            ? colors.primary
+                            : colors.border,
+                      },
                     ]}
                   />
                 ))}
               </View>
             </View>
 
-            <Text style={styles.sectionTitle}>Shop by Category</Text>
+            {/* Section Header */}
+            <View style={styles.sectionHeader}>
+              <Text
+                style={[styles.sectionTitle, { color: colors.textPrimary }]}
+              >
+                Browse Categories
+              </Text>
+              <Text
+                style={[
+                  styles.sectionSubtitle,
+                  { color: colors.textSecondary },
+                ]}
+              >
+                Find your perfect furniture
+              </Text>
+            </View>
 
-            {/* Separated Category Buttons */}
+            {/* Modern Category Grid */}
             <View style={styles.categoryGrid}>
+              {categories.map((category) => (
+                <TouchableOpacity
+                  key={category.id}
+                  style={[
+                    styles.categoryCard,
+                    { backgroundColor: colors.cardBg },
+                  ]}
+                  onPress={() => goToScreen?.(category.screen as Screen)}
+                  activeOpacity={0.7}
+                >
+                  <View
+                    style={[
+                      styles.categoryIconCircle,
+                      { backgroundColor: colors.background },
+                    ]}
+                  >
+                    <Text style={styles.categoryIcon}>{category.icon}</Text>
+                  </View>
+                  <Text
+                    style={[
+                      styles.categoryLabel,
+                      { color: colors.textPrimary },
+                    ]}
+                  >
+                    {category.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Feature Highlight */}
+            <View
+              style={[styles.featureCard, { backgroundColor: colors.primary }]}
+            >
+<Text style={styles.featureTitle}>✨ Place Multiple Furniture</Text>
+<Text style={styles.featureDescription}>
+  Spawn and arrange multiple furniture pieces in your space before buying.
+</Text>
+
               <TouchableOpacity
-                style={styles.categoryButton}
-                onPress={() => goToScreen?.("livingroom")}
+                style={[
+                  styles.featureButton,
+                  { backgroundColor: colors.accent },
+                ]}
+                onPress={() => setArGuideVisible(true)}              >
+                <Text
+                  style={[styles.featureButtonText, { color: colors.primary }]}
+                >
+                  Try Now
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
+
+        <View style={{ height: 100 }} />
+      </ScrollView>
+            <Modal
+        animationType="fade"
+        transparent={true}
+        visible={arGuideVisible}
+        onRequestClose={() => setArGuideVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[styles.minimalModal, { backgroundColor: colors.cardBg }]}
+          >
+            <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>
+              📱 AR Furniture Setup Guide
+            </Text>
+
+            <ScrollView
+              style={{ maxHeight: 320, marginVertical: 8 }}
+              showsVerticalScrollIndicator={false}
+            >
+              <Text
+                style={[styles.modalMessage, { color: colors.textSecondary }]}
               >
-                <Text style={styles.categoryIcon}>🛋️</Text>
-                <Text style={styles.categoryLabel}>Living Room</Text>
+                • Ensure a{" "}
+                <Text style={{ fontWeight: "600" }}>clear surrounding</Text>{" "}
+                area for accurate surface recognition.{"\n\n"}• Slowly{" "}
+                <Text style={{ fontWeight: "600" }}>move your phone</Text> to
+                scan the environment.{"\n\n"}• Point your camera toward the{" "}
+                <Text style={{ fontWeight: "600" }}>floor</Text> to avoid
+                floating furniture.{"\n\n"}• When a valid placement area is
+                detected, a{" "}
+                <Text style={{ fontWeight: "600" }}>spawn indicator</Text> will
+                appear.{"\n\n"}• Tap on the indicator to{" "}
+                <Text style={{ fontWeight: "600" }}>spawn</Text> the furniture.
+                {"\n\n"}• Tap the furniture to{" "}
+                <Text style={{ fontWeight: "600" }}>highlight</Text> it — this
+                enables <Text style={{ fontWeight: "600" }}>move</Text>,{" "}
+                <Text style={{ fontWeight: "600" }}>rotate</Text>, or{" "}
+                <Text style={{ fontWeight: "600" }}>reposition</Text> controls.
+                {"\n\n"}• If you see a{" "}
+                <Text style={{ fontWeight: "600" }}>shade or red tint</Text>, it
+                means you’re in an{" "}
+                <Text style={{ fontWeight: "600" }}>
+                  invalid placement area
+                </Text>
+                .{"\n\n"}• Try scanning again in a well-lit, flat surface area
+                for better detection.
+              </Text>
+            </ScrollView>
+
+            <View style={styles.modalButtonRow}>
+              <TouchableOpacity
+                style={[
+                  styles.modalButton,
+                  styles.cancelButton,
+                  { backgroundColor: colors.border },
+                ]}
+                onPress={() => setArGuideVisible(false)}
+              >
+                <Text
+                  style={[
+                    styles.modalButtonText,
+                    { color: colors.textSecondary },
+                  ]}
+                >
+                  Cancel
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.categoryButton}
-                onPress={() => goToScreen?.("droomt")}
-              >
-                <Text style={styles.categoryIcon}>🍽️</Text>
-                <Text style={styles.categoryLabel}>Dining</Text>
-              </TouchableOpacity>
+                style={[
+                  styles.modalButton,
+                  { backgroundColor: colors.primary },
+                ]}
+                onPress={() => {
+                  setArGuideVisible(false);
+                  Linking.openURL("arfurniture://multiple")
 
-              <TouchableOpacity
-                style={styles.categoryButton}
-                onPress={() => goToScreen?.("broomt")}
+                }}
               >
-                <Text style={styles.categoryIcon}>🛏️</Text>
-                <Text style={styles.categoryLabel}>Bedroom</Text>
+                <Text style={[styles.modalButtonText, { color: "#FFFFFF" }]}>
+                  Proceed to AR
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
-        </>
-      )}
+        </View>
+      </Modal>
 
-      {/* Bottom Navigation */}
-      <View style={styles.bottomNav}>
+      {/* Modern Bottom Navigation */}
+      <View
+        style={[
+          styles.bottomNav,
+          { backgroundColor: colors.cardBg, borderTopColor: colors.border },
+        ]}
+      >
         <TouchableOpacity
           style={styles.navItem}
           onPress={() => goToScreen?.("home")}
         >
-          <Text style={styles.navIcon}>🏠</Text>
-          <Text style={styles.navLabel}>Home</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => goToScreen?.("inbox")}
-        >
-          <Text style={styles.navIcon}>📥</Text>
-          {unreadCount > 0 && (
-            <View style={styles.notifBadge}>
-              <Text style={styles.notifBadgeText}>
-                {unreadCount > 99 ? "99+" : unreadCount}
-              </Text>
-            </View>
-          )}
-          <Text style={styles.navLabel}>Inbox</Text>
+          <View
+            style={[
+              styles.navIconContainer,
+              styles.navActive,
+              { backgroundColor: colors.primary },
+            ]}
+          >
+            <Text style={styles.navIconActive}>🏠</Text>
+          </View>
+          <Text
+            style={[
+              styles.navLabel,
+              styles.navLabelActive,
+              { color: colors.primary },
+            ]}
+          >
+            Home
+          </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.navItem} onPress={onCart}>
-          <Text style={styles.navIcon}>🛒</Text>
-          <Text style={styles.navLabel}>Cart</Text>
+        <TouchableOpacity
+          style={styles.navItem}
+          onPress={() => goToScreen?.("Wishlist")}
+        >
+          <View style={styles.navIconContainer}>
+            <Text style={[styles.navIcon, { color: colors.textSecondary }]}>
+              ♡
+            </Text>
+          </View>
+          <Text style={[styles.navLabel, { color: colors.textSecondary }]}>
+            Wishlist
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.navItem}
           onPress={() => goToScreen?.("profile")}
         >
-          <Text style={styles.navIcon}>👤</Text>
-          <Text style={styles.navLabel}>Profile</Text>
+          <View style={styles.navIconContainer}>
+            <Text style={[styles.navIcon, { color: colors.textSecondary }]}>
+              👤
+            </Text>
+          </View>
+          <Text style={[styles.navLabel, { color: colors.textSecondary }]}>
+            Profile
+          </Text>
         </TouchableOpacity>
       </View>
     </View>
   );
 };
 
-export default HomeScreen;
-
-// STYLES
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#D8C5B4",
   },
-  header: {
-    backgroundColor: "#3E2E22",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  headerIcon: {
-    color: "white",
-    fontSize: 24,
-  },
-  logoImage: {
-    width: 100,
-    height: 40,
-  },
-  mainContent: {
+  scrollView: {
     flex: 1,
-  },
-  imageSlider: {
-    marginHorizontal: 16,
-    borderRadius: 12,
-    overflow: "hidden",
-  },
-  sliderImage: {
-    height: 180,
-    borderRadius: 12,
-  },
-  dotsContainer: {
-    flexDirection: "row",
-    justifyContent: "center",
-    marginTop: 8,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#3E2E22",
-    marginHorizontal: 4,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#4D392B",
-    marginTop: 20,
-    marginLeft: 20,
-  },
-  categoryGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-around",
-    paddingVertical: 20,
-  },
-  categoryButton: {
-    width: "40%",
-    backgroundColor: "#EBDDCB",
-    borderRadius: 12,
-    padding: 16,
-    marginVertical: 10,
-    alignItems: "center",
-  },
-  categoryIcon: {
-    fontSize: 28,
-  },
-  categoryLabel: {
-    marginTop: 8,
-    fontWeight: "600",
-    color: "#3E2E22",
-  },
-  bottomNav: {
-    backgroundColor: "#3E2E22",
-    flexDirection: "row",
-    justifyContent: "space-around",
-    paddingVertical: 8,
-  },
-  navItem: {
-    alignItems: "center",
-  },
-  navIcon: {
-    color: "white",
-    fontSize: 22,
-  },
-  navLabel: {
-    color: "white",
-    fontSize: 12,
-    marginTop: 2,
-  },
-  drawer: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    width: "70%",
-    height: "100%",
-    backgroundColor: "#D8C5B4",
-    padding: 20,
-    zIndex: 2,
-    justifyContent: "flex-start",
-  },
-  backButton: {
-    alignSelf: "flex-start",
-    backgroundColor: "#A89580",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    marginBottom: 20,
-  },
-  backButtonText: {
-    color: "#fff",
-    fontWeight: "600",
-  },
-  menuItem: {
-    borderBottomWidth: 1,
-    borderBottomColor: "#CBB8A6",
-    paddingVertical: 16,
-  },
-  menuText: {
-    fontSize: 16,
-    color: "#3E2E22",
-    fontWeight: "500",
-  },
-  drawerBottomImage: {
-    flex: 1,
-    justifyContent: "flex-end",
-    alignItems: "center",
-    paddingTop: 40,
-  },
-  sfImage: {
-    width: 100,
-    height: 80,
   },
   backdrop: {
     position: "absolute",
@@ -513,61 +725,427 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: "rgba(0,0,0,0.3)",
-    zIndex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    zIndex: 999,
+  },
+  drawer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: "80%",
+    maxWidth: 320,
+    height: "100%",
+    shadowColor: "#000",
+    shadowOffset: { width: 2, height: 0 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  drawerHeader: {
+    paddingTop: 60,
+    paddingHorizontal: 24,
+    paddingBottom: 24,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F0F0F0",
+  },
+  closeButton: {
+    alignSelf: "flex-start",
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#F5F5F5",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+  closeButtonText: {
+    fontSize: 18,
+    fontWeight: "600",
+  },
+  drawerTitle: {
+    fontSize: 28,
+    fontWeight: "700",
+  },
+  drawerContent: {
+    flex: 1,
+    paddingTop: 16,
+  },
+  drawerItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+  },
+  drawerItemIcon: {
+    fontSize: 24,
+    marginRight: 16,
+  },
+  drawerItemText: {
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  drawerFooter: {
+    paddingHorizontal: 24,
+    paddingBottom: 40,
+    alignItems: "center",
+  },
+  drawerLogo: {
+    width: 80,
+    height: 60,
+    marginBottom: 8,
+  },
+  drawerFooterText: {
+    fontSize: 12,
+  },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    paddingTop: 20,
+  },
+  headerButton: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  menuIconContainer: {
+    width: 24,
+    gap: 4,
+  },
+  menuLine: {
+    height: 2,
+    width: 24,
+    borderRadius: 1,
+  },
+  headerLogo: {
+    width: 90,
+    height: 30,
+  },
+  settingsIcon: {
+    fontSize: 20,
+  },
+  searchContainer: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  searchWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderWidth: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  searchIcon: {
+    fontSize: 18,
+    marginRight: 12,
   },
   searchInput: {
-    backgroundColor: "#fff",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    flex: 1,
     fontSize: 16,
-    color: "#000",
+    fontWeight: "400",
   },
-  searchResultItem: {
-    backgroundColor: "#fff",
-    padding: 12,
-    marginHorizontal: 12,
-    marginVertical: 6,
-    borderRadius: 8,
+  clearIcon: {
+    fontSize: 16,
+    padding: 4,
+  },
+  searchResults: {
+    paddingHorizontal: 20,
+  },
+  searchResultCard: {
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
     shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
     elevation: 2,
+  },
+  searchResultContent: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  searchResultInfo: {
+    flex: 1,
   },
   searchResultName: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#000",
-  },
-  searchResultPrice: {
-    fontSize: 14,
-    color: "#333",
+    marginBottom: 4,
   },
   searchResultCategory: {
-    fontSize: 12,
-    color: "#555",
+    fontSize: 14,
   },
-  notifBadge: {
+  searchResultPrice: {
+    fontSize: 18,
+    fontWeight: "700",
+  },
+  carouselContainer: {
+    marginTop: 4,
+    paddingHorizontal: 16,
+  },
+  carouselItem: {
+    borderRadius: 16,
+    overflow: "hidden",
+    height: 160,
+  },
+  carouselImage: {
+    width: "100%",
+    height: "100%",
+  },
+  carouselOverlay: {
     position: "absolute",
-    right: -6,
-    top: -4,
-    backgroundColor: "red",
-    borderRadius: 8,
-    minWidth: 16,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    padding: 14,
+  },
+  carouselTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  carouselSubtitle: {
+    fontSize: 13,
+    color: "#FFFFFF",
+    marginTop: 2,
+  },
+  dotsContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 10,
+    gap: 5,
+  },
+  dot: {
+    height: 6,
+    borderRadius: 3,
+  },
+  sectionHeader: {
+    paddingHorizontal: 20,
+    paddingTop: 32,
+    paddingBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 24,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  sectionSubtitle: {
+    fontSize: 15,
+  },
+  categoryGrid: {
+    paddingHorizontal: 20,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 16,
+  },
+  categoryCard: {
+    width: (Dimensions.get("window").width - 56) / 2,
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  categoryIconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     alignItems: "center",
     justifyContent: "center",
-    zIndex: 10,
+    marginBottom: 12,
   },
-  settingsButton: {
-    padding: 6,
+  categoryIcon: {
+    fontSize: 28,
   },
+  categoryLabel: {
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 8,
+  },
+  categoryArrow: {
+    position: "absolute",
+    bottom: 16,
+    right: 16,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  categoryArrowText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  featureCard: {
+    marginHorizontal: 20,
+    marginTop: 24,
+    borderRadius: 16,
+    padding: 24,
+  },
+  featureTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#FFFFFF",
+    marginBottom: 8,
+  },
+  featureDescription: {
+    fontSize: 15,
+    color: "#FFFFFF",
+    opacity: 0.9,
+    marginBottom: 16,
+  },
+  featureButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    alignSelf: "flex-start",
+  },
+  featureButtonText: {
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  bottomNav: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    paddingVertical: 12,
+    paddingBottom: 24,
+    borderTopWidth: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  navItem: {
+    alignItems: "center",
+    gap: 4,
+  },
+  navIconContainer: {
+    position: "relative",
+    width: 48,
+    height: 48,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  navActive: {
+    borderRadius: 24,
+  },
+  navIcon: {
+    fontSize: 24,
+  },
+  navIconActive: {
+    fontSize: 24,
+    color: "#FFFFFF",
+  },
+  badge: {
+    position: "absolute",
+    top: 0,
+    right: 8,
+    backgroundColor: "#FF3B30",
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 6,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  badgeText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  navLabel: {
+    fontSize: 12,
+    fontWeight: "500",
+  },
+  navLabelActive: {
+    fontWeight: "600",
+  },
+  searchResultRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  searchResultImage: {
+    width: 70,
+    height: 70,
+    borderRadius: 10,
+    marginRight: 12,
+  },
+  minimalModal: {
+  width: "88%",
+  backgroundColor: "#FFFFFF",
+  borderRadius: 16,
+  padding: 20,
+  alignItems: "center",
+  elevation: 10,
+  shadowColor: "#000",
+  shadowOpacity: 0.2,
+  shadowRadius: 8,
+  shadowOffset: { width: 0, height: 4 },
+},
 
-  notifBadgeText: {
-    color: "white",
-    fontSize: 10,
-    fontWeight: "bold",
-  },
+modalOverlay: {
+  flex: 1,
+  backgroundColor: "rgba(0,0,0,0.45)",
+  justifyContent: "center",
+  alignItems: "center",
+  paddingHorizontal: 20,
+},
+
+modalTitle: {
+  fontSize: 20,
+  fontWeight: "700",
+  textAlign: "center",
+  marginBottom: 12,
+},
+
+modalMessage: {
+  fontSize: 14,
+  lineHeight: 20,
+  textAlign: "left",
+},
+
+modalButtonRow: {
+  flexDirection: "row",
+  justifyContent: "space-between",
+  width: "100%",
+  marginTop: 18,
+},
+
+modalButton: {
+  flex: 1,
+  paddingVertical: 12,
+  borderRadius: 12,
+  alignItems: "center",
+  justifyContent: "center",
+  marginHorizontal: 6,
+},
+
+cancelButton: {
+  backgroundColor: "#E5E5E5",
+},
+
+modalButtonText: {
+  fontSize: 15,
+  fontWeight: "600",
+},
 });
+
+export default HomeScreen;

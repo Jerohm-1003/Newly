@@ -2,287 +2,210 @@ import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
+  FlatList,
   StyleSheet,
   TouchableOpacity,
-  FlatList,
   ActivityIndicator,
-  SafeAreaView,
+  StatusBar,
 } from "react-native";
-import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { auth, firestore } from "../firebase/firebaseConfig";
-
-interface Payment {
-  id: string;
-  productName?: string;
-  products?: { id: string; name: string; quantity: number; price: number }[];
-  isBulk?: boolean;
-  status: string;
-  quantity?: number;
-  price?: number;
-  createdAt?: any;
-  updatedAt?: any;
-}
+import {
+  collection,
+  query,
+  where,
+  onSnapshot,
+  doc,
+  updateDoc,
+  deleteDoc,
+} from "firebase/firestore";
+import { Screen } from "./App";
 
 interface Notification {
   id: string;
-  type: string;
+  type: "wishlist" | "password_change" | string;
   message: string;
-  createdAt?: any;
-}
-
-interface Order {
-  id: string;
-  productName?: string;
-  products?: { id: string; name: string; quantity: number }[];
-  totalPrice?: number;
-  createdAt?: any;
-  status?: string;
+  status: "read" | "unread";
+  createdAt: any;
 }
 
 interface InboxProps {
+  goToScreen: (screen: Screen, params?: any) => void;
   goBack: () => void;
 }
 
-const Inbox: React.FC<InboxProps> = ({ goBack }) => {
-  const [notifications, setNotifications] = useState<any[]>([]);
+const Inbox: React.FC<InboxProps> = ({ goToScreen }) => {
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
+  const user = auth.currentUser;
 
   useEffect(() => {
-    const user = auth.currentUser;
     if (!user) return;
 
-    // ✅ 1. Done payments
-    const paymentsQuery = query(
-      collection(firestore, "payments"),
-      where("userId", "==", user.uid),
-      where("status", "==", "done")
-    );
-
-    // ✅ 2. User notifications
-    const notifQuery = query(
+    const q = query(
       collection(firestore, "notifications"),
       where("userId", "==", user.uid)
     );
 
-    // ✅ 3. Orders (new order confirmation)
-    const ordersQuery = query(
-      collection(firestore, "orders"),
-      where("userId", "==", user.uid)
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const notifList: Notification[] = snapshot.docs.map((docSnap) => ({
+          id: docSnap.id,
+          ...(docSnap.data() as Omit<Notification, "id">),
+        }));
+
+        // Sort by date desc
+        notifList.sort((a, b) => {
+          const aTime = a.createdAt?.toDate
+            ? a.createdAt.toDate().getTime()
+            : 0;
+          const bTime = b.createdAt?.toDate
+            ? b.createdAt.toDate().getTime()
+            : 0;
+          return bTime - aTime;
+        });
+
+        setNotifications(notifList);
+        setLoading(false);
+      },
+      (err) => {
+        console.log("🔥 Snapshot error:", err);
+      }
     );
 
-    // Payment listener
-    const unsubPayments = onSnapshot(paymentsQuery, (snapshot) => {
-      const payments = snapshot.docs.map((doc) => ({
-        ...doc.data(),
-        id: doc.id,
-        source: "payment",
-      }));
-      updateNotifications(payments, "payment");
-    });
+    return () => unsubscribe();
+  }, [user]);
 
-    // Notifications listener
-    const unsubNotifs = onSnapshot(notifQuery, (snapshot) => {
-      const notifDocs = snapshot.docs.map((doc) => ({
-        ...doc.data(),
-        id: doc.id,
-        source: "notification",
-      }));
-      updateNotifications(notifDocs, "notification");
-    });
-
-    // Orders listener
-    const unsubOrders = onSnapshot(ordersQuery, (snapshot) => {
-      const orderDocs = snapshot.docs.map((doc) => ({
-        ...doc.data(),
-        id: doc.id,
-        source: "order",
-      }));
-      updateNotifications(orderDocs, "order");
-    });
-
-    const updateNotifications = (newItems: any[], sourceType: string) => {
-      setNotifications((prev) => {
-        const filtered = prev.filter((n) => n.source !== sourceType);
-        return mergeAndSort([...filtered, ...newItems]);
-      });
-      setLoading(false);
-    };
-
-    return () => {
-      unsubPayments();
-      unsubNotifs();
-      unsubOrders();
-    };
-  }, []);
-
-  const mergeAndSort = (items: any[]) => {
-    return items.sort((a, b) => {
-      const aTime =
-        a.updatedAt?.toDate?.() ?? a.createdAt?.toDate?.() ?? new Date(0);
-      const bTime =
-        b.updatedAt?.toDate?.() ?? b.createdAt?.toDate?.() ?? new Date(0);
-      return bTime.getTime() - aTime.getTime();
-    });
+  const markAsRead = async (notifId: string) => {
+    try {
+      const ref = doc(firestore, "notifications", notifId);
+      await updateDoc(ref, { status: "read" });
+    } catch (err) {
+      console.log("Failed to mark read:", err);
+    }
   };
 
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#3E2E22" />
-      </View>
-    );
-  }
+  const deleteNotification = async (notifId: string) => {
+    try {
+      await deleteDoc(doc(firestore, "notifications", notifId));
+    } catch (err) {
+      console.log("❌ Delete error:", err);
+    }
+  };
 
-  if (notifications.length === 0) {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.emptyText}>No notifications yet.</Text>
-        <TouchableOpacity onPress={goBack} style={styles.backButton}>
-          <Text style={styles.backText}>← Back</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
+  const renderItem = ({ item }: { item: Notification }) => (
+    <View
+      style={[
+        styles.notificationCard,
+        { backgroundColor: item.status === "unread" ? "#FFF9E6" : "#FFFFFF" },
+      ]}
+    >
+      <TouchableOpacity style={{ flex: 1 }} onPress={() => markAsRead(item.id)}>
+        <Text
+          style={[
+            styles.messageText,
+            { fontWeight: item.status === "unread" ? "700" : "400" },
+          ]}
+        >
+          {item.message}
+        </Text>
+
+        <Text style={styles.typeText}>
+          {item.type === "wishlist"
+            ? "Wishlist"
+            : item.type === "password_change"
+            ? "Account"
+            : item.type}
+        </Text>
+
+        <Text style={styles.dateText}>
+          {item.createdAt?.toDate
+            ? item.createdAt.toDate().toLocaleString()
+            : ""}
+        </Text>
+      </TouchableOpacity>
+
+      {/* DELETE BUTTON */}
+      <TouchableOpacity
+        style={styles.deleteBtn}
+        onPress={() => deleteNotification(item.id)}
+      >
+        <Text style={{ color: "white", fontWeight: "700" }}>X</Text>
+      </TouchableOpacity>
+    </View>
+  );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#2D2416" />
+
       <View style={styles.header}>
-        <TouchableOpacity onPress={goBack} style={styles.backBtn}>
+        <TouchableOpacity onPress={() => goToScreen("settings")}>
           <Text style={styles.backText}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>📩 Inbox</Text>
+        <Text style={styles.headerTitle}>Inbox</Text>
       </View>
 
-      <FlatList
-        data={notifications}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={{ padding: 20 }}
-        renderItem={({ item }) => {
-          // ✅ Payment Notification
-          if (item.source === "payment") {
-            const productNames = item.isBulk
-              ? item.products?.map((p: any) => p.name).join(", ") || "products"
-              : item.productName || "a product";
-            const totalAmount =
-              item.totalPrice ??
-              item.amountPaid ??
-              (item.isBulk
-                ? item.products?.reduce(
-                    (sum: number, p: any) =>
-                      sum + (p.price || 0) * (p.quantity || 1),
-                    0
-                  ) || 0
-                : (item.price || 0) * (item.quantity || 1));
-
-            return (
-              <View style={styles.notificationCard}>
-                <Text style={styles.notificationText}>
-                  ✅ Your payment for{" "}
-                  {item.isBulk ? "these products" : "“" + productNames + "”"}{" "}
-                  has been approved.
-                </Text>
-                {item.isBulk && (
-                  <Text style={styles.notificationText} numberOfLines={1}>
-                    Products: {productNames}
-                  </Text>
-                )}
-                <Text style={styles.amountText}>
-                  Amount Paid: ₱{totalAmount}
-                </Text>
-                <Text style={styles.dateText}>
-                  {item.updatedAt?.toDate
-                    ? item.updatedAt.toDate().toLocaleString()
-                    : item.createdAt?.toDate
-                    ? item.createdAt.toDate().toLocaleString()
-                    : "Processing..."}
-                </Text>
-              </View>
-            );
-          }
-
-          // 🛒 Order Notification
-          if (item.source === "order") {
-            const orderProducts = item.products
-              ?.map((p: any) => `${p.name} x${p.quantity}`)
-              .join(", ");
-            return (
-              <View style={styles.notificationCard}>
-                <Text style={styles.notificationText}>
-                  🛒 Order placed successfully!
-                </Text>
-                {orderProducts && (
-                  <Text style={styles.notificationText} numberOfLines={1}>
-                    Items: {orderProducts}
-                  </Text>
-                )}
-                <Text style={styles.amountText}>
-                  Total: ₱{item.totalPrice || 0}
-                </Text>
-                <Text style={styles.dateText}>
-                  {item.createdAt?.toDate
-                    ? item.createdAt.toDate().toLocaleString()
-                    : "Just now"}
-                </Text>
-              </View>
-            );
-          }
-
-          // 🔔 Regular notification
-          return (
-            <View style={styles.notificationCard}>
-              <Text style={styles.notificationText}>
-                🔔 {item.message || "Notification"}
-              </Text>
-              <Text style={styles.dateText}>
-                {item.createdAt?.toDate
-                  ? item.createdAt.toDate().toLocaleString()
-                  : "Just now"}
-              </Text>
-            </View>
-          );
-        }}
-      />
-    </SafeAreaView>
+      {loading ? (
+        <ActivityIndicator
+          size="large"
+          color="#2D2416"
+          style={{ marginTop: 40 }}
+        />
+      ) : notifications.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyText}>No notifications yet</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={notifications}
+          keyExtractor={(item) => item.id}
+          renderItem={renderItem}
+          contentContainerStyle={{ paddingBottom: 20 }}
+        />
+      )}
+    </View>
   );
 };
 
-export default Inbox;
-
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#D8C5B4" },
-  center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  emptyText: { color: "#3E2E22", fontSize: 16 },
-  backButton: { marginTop: 10 },
-  backText: { color: "#3E2E22", fontWeight: "bold" },
+  container: { flex: 1, backgroundColor: "#FAF8F5" },
   header: {
+    height: 80,
+    backgroundColor: "#2D2416",
+    justifyContent: "flex-end",
+    paddingBottom: 16,
+    paddingHorizontal: 20,
+  },
+  backText: { color: "#FFF", fontSize: 16, marginBottom: 4 },
+  headerTitle: { color: "#FFF", fontSize: 22, fontWeight: "700" },
+
+  notificationCard: {
+    marginHorizontal: 16,
+    marginVertical: 8,
+    padding: 16,
+    borderRadius: 12,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#f3dcbe",
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    elevation: 2,
+    position: "relative",
   },
-  backBtn: {
-    backgroundColor: "#EADBC8",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 10,
-    marginRight: 10,
+
+  deleteBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: "#B3261E",
+    justifyContent: "center",
+    alignItems: "center",
+    marginLeft: 10,
   },
-  headerTitle: { fontSize: 18, fontWeight: "bold", color: "#3E2E22" },
-  notificationCard: {
-    backgroundColor: "#fff",
-    padding: 15,
-    marginBottom: 10,
-    borderRadius: 10,
-    elevation: 2,
-  },
-  notificationText: { fontSize: 15, color: "#3E2E22" },
-  amountText: {
-    fontSize: 14,
-    color: "#3E2E22",
-    marginTop: 4,
-    fontWeight: "600",
-  },
-  dateText: { fontSize: 12, color: "#555", marginTop: 6 },
+
+  messageText: { fontSize: 16, color: "#1A1A1A" },
+  typeText: { fontSize: 12, color: "#8B7355", marginTop: 4 },
+  dateText: { fontSize: 12, color: "#8B7355", marginTop: 2 },
+
+  emptyContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
+  emptyText: { fontSize: 16, color: "#6B6B6B" },
 });
+
+export default Inbox;

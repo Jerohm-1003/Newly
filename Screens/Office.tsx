@@ -12,17 +12,17 @@ import {
 } from "react-native";
 import type { Screen } from "../types";
 
-interface BRoomScreenProps {
-  goToScreen: (screen: Screen) => void;
+interface OfficeScreenProps {
+  goToScreen: (screen: Screen, params?: any) => void;
   goBack: () => void;
 }
 
-const BRoomScreen: React.FC<BRoomScreenProps> = ({ goToScreen, goBack }) => {
+const OfficeScreen: React.FC<OfficeScreenProps> = ({ goToScreen, goBack }) => {
   const screenWidth = Dimensions.get("window").width;
   const [menuVisible, setMenuVisible] = useState(false);
   const slideAnim = useRef(new Animated.Value(-screenWidth)).current;
 
-  // Color Pallete - Theme
+  // Color Palette - Theme
   const colors = {
     primary: "#2D2416",
     secondary: "#8B7355",
@@ -53,19 +53,27 @@ const BRoomScreen: React.FC<BRoomScreenProps> = ({ goToScreen, goBack }) => {
 
   const furnitureTypes = [
     {
-      id: "wardrobe",
-      icon: "👗",
-      label: "Wardrobe / Cabinet / Drawer",
-      screen: "Wardrobe",
+      id: "officechair",
+      icon: "🪑",
+      label: "Office Chair",
+      screen: "officechair",
     },
-    { id: "bed", icon: "🛏️", label: "Bed", screen: "Bed" },
+
+    {
+      id: "bookshelf",
+      icon: "🧑‍💻",
+      label: "Laptop Stand / Computer Table",
+      screen: "laptopstand",
+    },
+    
+
   ];
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar barStyle="light-content" backgroundColor={colors.primary} />
 
-      {/* Modern Sidebar Drawer (matching LivingRoomScreen) */}
+      {/* Modern Sidebar Drawer (matching Home.tsx) */}
       {menuVisible && (
         <TouchableOpacity
           style={styles.backdrop}
@@ -129,24 +137,6 @@ const BRoomScreen: React.FC<BRoomScreenProps> = ({ goToScreen, goBack }) => {
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.drawerItem}>
-                <Text style={styles.drawerItemIcon}>🏢</Text>
-                <Text
-                  style={[styles.drawerItemText, { color: colors.textPrimary }]}
-                >
-                  Home Office
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.drawerItem}>
-                <Text style={styles.drawerItemIcon}>🎨</Text>
-                <Text
-                  style={[styles.drawerItemText, { color: colors.textPrimary }]}
-                >
-                  Home Decoration
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.drawerItem}>
                 <Text style={styles.drawerItemIcon}>❓</Text>
                 <Text
                   style={[styles.drawerItemText, { color: colors.textPrimary }]}
@@ -175,7 +165,7 @@ const BRoomScreen: React.FC<BRoomScreenProps> = ({ goToScreen, goBack }) => {
         </TouchableOpacity>
       )}
 
-      {/* Modern Header (matching LivingRoomScreen) */}
+      {/* Modern Header (matching Home.tsx) */}
       <View style={[styles.header, { backgroundColor: colors.primary }]}>
         <TouchableOpacity style={styles.headerButton} onPress={toggleMenu}>
           <View style={styles.menuIconContainer}>
@@ -194,7 +184,7 @@ const BRoomScreen: React.FC<BRoomScreenProps> = ({ goToScreen, goBack }) => {
           </View>
         </TouchableOpacity>
 
-        <Text style={styles.headerTitle}>Bedroom</Text>
+        <Text style={styles.headerTitle}>Office</Text>
 
         <TouchableOpacity
           style={styles.headerButton}
@@ -210,10 +200,10 @@ const BRoomScreen: React.FC<BRoomScreenProps> = ({ goToScreen, goBack }) => {
       >
         {/* Hero Section */}
         <View style={[styles.heroSection, { backgroundColor: colors.primary }]}>
-          <Text style={styles.heroIcon}>🛏️</Text>
-          <Text style={styles.heroTitle}>Bedroom Collection</Text>
+          <Text style={styles.heroIcon}>🍳</Text>
+          <Text style={styles.heroTitle}>Office Collection</Text>
           <Text style={styles.heroSubtitle}>
-            Create your perfect sleeping sanctuary
+            Discover stylish & functional office furniture
           </Text>
         </View>
 
@@ -270,15 +260,44 @@ const BRoomScreen: React.FC<BRoomScreenProps> = ({ goToScreen, goBack }) => {
             <Text
               style={[styles.infoDescription, { color: colors.textSecondary }]}
             >
-              Use AR to visualize furniture in your bedroom before purchasing
+              Use AR to visualize kitchen furniture in your space before
+              purchasing
             </Text>
+          </View>
+        </View>
+
+        {/* Tips Card */}
+        <View style={[styles.tipsCard, { backgroundColor: colors.accent }]}>
+          <View style={styles.tipsHeader}>
+            <Text style={styles.tipsIcon}>✨</Text>
+            <Text style={styles.tipsTitle}>Office Design Tips</Text>
+          </View>
+          <View style={styles.tipsList}>
+            <View style={styles.tipItem}>
+              <Text style={styles.tipBullet}>•</Text>
+              <Text style={styles.tipText}>
+                Measure your space before selecting furniture
+              </Text>
+            </View>
+            <View style={styles.tipItem}>
+              <Text style={styles.tipBullet}>•</Text>
+              <Text style={styles.tipText}>
+                Consider workplace needs and workflow
+              </Text>
+            </View>
+            <View style={styles.tipItem}>
+              <Text style={styles.tipBullet}>•</Text>
+              <Text style={styles.tipText}>
+                Match furniture style with your office theme
+              </Text>
+            </View>
           </View>
         </View>
 
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* Modern Bottom Navigation (matching LivingRoomScreen) */}
+      {/* Modern Bottom Navigation (matching Home.tsx) */}
       <View
         style={[
           styles.bottomNav,
@@ -548,6 +567,51 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
+  tipsCard: {
+    marginHorizontal: 20,
+    marginTop: 16,
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  tipsHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  tipsIcon: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  tipsTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  tipsList: {
+    gap: 12,
+  },
+  tipItem: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+  tipBullet: {
+    fontSize: 20,
+    color: "#FFFFFF",
+    marginRight: 8,
+    marginTop: -2,
+  },
+  tipText: {
+    flex: 1,
+    fontSize: 14,
+    color: "#FFFFFF",
+    lineHeight: 20,
+    opacity: 0.95,
+  },
   bottomNav: {
     flexDirection: "row",
     justifyContent: "space-around",
@@ -579,4 +643,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default BRoomScreen;
+export default OfficeScreen;

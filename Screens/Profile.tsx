@@ -7,9 +7,9 @@ import {
   Image,
   Modal,
   TextInput,
-  Alert,
   ScrollView,
   Animated,
+  StatusBar,
 } from "react-native";
 import {
   launchImageLibrary,
@@ -20,10 +20,23 @@ import { getAuth, signOut } from "firebase/auth";
 import { doc, getDoc, updateDoc, addDoc, collection } from "firebase/firestore";
 import { auth, firestore } from "../firebase/firebaseConfig";
 import type { Screen } from "./App";
+import CustomAlert from "./CustomAlert";
 
 interface ProfileProps {
   goToScreen: (screen: Screen, params?: any) => void;
   goBack: () => void;
+}
+
+interface AlertState {
+  visible: boolean;
+  type: "success" | "error" | "warning" | "info" | "question";
+  title: string;
+  message: string;
+  confirmText?: string;
+  cancelText?: string;
+  onConfirm: () => void;
+  onCancel?: () => void;
+  showCancel?: boolean;
 }
 
 const Profile: React.FC<ProfileProps> = ({ goToScreen, goBack }) => {
@@ -42,6 +55,62 @@ const Profile: React.FC<ProfileProps> = ({ goToScreen, goBack }) => {
   const slideAnim = useRef(new Animated.Value(30)).current;
   const currentUser = auth.currentUser;
 
+  // Custom Alert State
+  const [alertState, setAlertState] = useState<AlertState>({
+    visible: false,
+    type: "info",
+    title: "",
+    message: "",
+    onConfirm: () => {},
+    showCancel: false,
+  });
+
+  // Color Palette - Theme
+  const colors = {
+    primary: "#2D2416",
+    secondary: "#8B7355",
+    accent: "#D4A574",
+    background: "#FAF8F5",
+    cardBg: "#FFFFFF",
+    textPrimary: "#1A1A1A",
+    textSecondary: "#6B6B6B",
+    border: "#E8E8E8",
+    success: "#4CAF50",
+    error: "#FF3B30",
+  };
+
+  // Helper function to show custom alert
+  const showAlert = (
+    type: AlertState["type"],
+    title: string,
+    message: string,
+    onConfirm: () => void,
+    showCancel = false,
+    onCancel?: () => void,
+    confirmText = "OK",
+    cancelText = "Cancel"
+  ) => {
+    setAlertState({
+      visible: true,
+      type,
+      title,
+      message,
+      confirmText,
+      cancelText,
+      onConfirm: () => {
+        onConfirm();
+        setAlertState((prev) => ({ ...prev, visible: false }));
+      },
+      onCancel: onCancel
+        ? () => {
+            onCancel();
+            setAlertState((prev) => ({ ...prev, visible: false }));
+          }
+        : undefined,
+      showCancel,
+    });
+  };
+
   useEffect(() => {
     if (currentUser) {
       const fetchUserData = async () => {
@@ -50,7 +119,7 @@ const Profile: React.FC<ProfileProps> = ({ goToScreen, goBack }) => {
         if (userSnap.exists()) {
           const data = userSnap.data();
           setProfileData(data);
-          setPreviousProfileData(data); // Save for change detection
+          setPreviousProfileData(data);
           setProfilePic(data.profilePic);
         }
       };
@@ -73,40 +142,15 @@ const Profile: React.FC<ProfileProps> = ({ goToScreen, goBack }) => {
       }),
     ]).start();
   }, [currentUser]);
-  const loginFadeAnim = useRef(new Animated.Value(0)).current;
-  const loginScaleAnim = useRef(new Animated.Value(0.9)).current;
 
-  useEffect(() => {
-    if (loginModalVisible) {
-      Animated.parallel([
-        Animated.timing(loginFadeAnim, {
-          toValue: 1,
-          duration: 400,
-          useNativeDriver: true,
-        }),
-        Animated.spring(loginScaleAnim, {
-          toValue: 1,
-          friction: 6,
-          tension: 60,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    } else {
-      Animated.timing(loginFadeAnim, {
-        toValue: 0,
-        duration: 250,
-        useNativeDriver: true,
-      }).start();
-    }
-  }, [loginModalVisible]);
-
-  // Image handlers
   const chooseProfilePic = () => {
     launchImageLibrary(
       { mediaType: "photo", quality: 1 },
       (response: ImagePickerResponse) => {
-        if (response.assets && response.assets[0])
+        if (response.assets && response.assets[0]) {
           setProfilePic(response.assets[0].uri ?? null);
+          setIsPicModalVisible(false);
+        }
       }
     );
   };
@@ -115,27 +159,27 @@ const Profile: React.FC<ProfileProps> = ({ goToScreen, goBack }) => {
     launchCamera(
       { mediaType: "photo", quality: 1 },
       (response: ImagePickerResponse) => {
-        if (response.assets && response.assets[0])
+        if (response.assets && response.assets[0]) {
           setProfilePic(response.assets[0].uri ?? null);
+          setIsPicModalVisible(false);
+        }
       }
     );
   };
 
-  // Update Profile Modal Handler
   const handleUpdateProfile = async () => {
     if (!currentUser) return;
 
     try {
       const userRef = doc(firestore, "users", currentUser.uid);
 
-      // Compare current data with previous to detect changes
       const updates: any = {};
       const changedFields: string[] = [];
       Object.keys(profileData).forEach((key) => {
         const k = key as keyof typeof profileData;
         if (profileData[k] !== previousProfileData[k]) {
           updates[k] = profileData[k];
-          changedFields.push(String(k)); // <-- cast to string here
+          changedFields.push(String(k));
         }
       });
 
@@ -145,272 +189,272 @@ const Profile: React.FC<ProfileProps> = ({ goToScreen, goBack }) => {
       }
 
       if (Object.keys(updates).length === 0) {
-        Alert.alert("No changes", "No fields were changed.");
+        showAlert("info", "No Changes", "No fields were changed.", () => {});
         return;
       }
 
       await updateDoc(userRef, updates);
 
-      // Send specific notifications for each changed field
       for (const field of changedFields) {
         await addDoc(collection(firestore, "notifications"), {
           userId: currentUser.uid,
           message: `Your ${field} has been updated successfully.`,
           createdAt: new Date(),
           type: "profile_update",
+          status: "unread",
         });
       }
 
-      Alert.alert("Success", "Profile updated.");
-      setEditProfileVisible(false);
+      showAlert(
+        "success",
+        "Profile Updated",
+        "Your profile has been updated successfully!",
+        () => {
+          setEditProfileVisible(false);
+        }
+      );
 
-      // Update local previousProfileData
       setPreviousProfileData({ ...profileData, profilePic });
     } catch (error) {
       console.error(error);
-      Alert.alert("Error", "Failed to update profile.");
+      showAlert(
+        "error",
+        "Update Failed",
+        "Failed to update profile. Please try again.",
+        () => {}
+      );
     }
   };
 
-  // Update Address Modal Handler
-  const handleUpdateAddress = async () => {
-    if (!currentUser) return;
-
-    try {
-      const userRef = doc(firestore, "users", currentUser.uid);
-
-      if (profileData.address !== previousProfileData.address) {
-        await updateDoc(userRef, { address: profileData.address });
-
-        await addDoc(collection(firestore, "notifications"), {
-          userId: currentUser.uid,
-          message: `Your address has been updated successfully.`,
-          createdAt: new Date(),
-          type: "profile_update",
-        });
-
-        Alert.alert("Success", "Address updated.");
-        setEditAddressVisible(false);
-        setPreviousProfileData({
-          ...previousProfileData,
-          address: profileData.address,
-        });
-      } else {
-        Alert.alert("No changes", "Address was not changed.");
-      }
-    } catch (error) {
-      console.error(error);
-      Alert.alert("Error", "Failed to update address.");
-    }
-  };
-
-  // Logout
   const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      setIsLoggedIn(false);
-      goToScreen?.("home");
-    } catch {
-      Alert.alert("Error", "Failed to log out.");
-    }
+    showAlert(
+      "question",
+      "Logout",
+      "Are you sure you want to logout?",
+      async () => {
+        try {
+          await signOut(auth);
+          setIsLoggedIn(false);
+          goToScreen?.("home");
+        } catch {
+          showAlert(
+            "error",
+            "Logout Failed",
+            "Failed to log out. Please try again.",
+            () => {}
+          );
+        }
+      },
+      true,
+      () => {},
+      "Logout",
+      "Cancel"
+    );
   };
 
   const handleLogin = () => {
     setLoginModalVisible(false);
     goToScreen?.("lreg");
   };
+
   const handleLoginNo = () => {
     setLoginModalVisible(false);
     goToScreen?.("home");
   };
 
-  // -------------------------
-  // Render
-  // -------------------------
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={goBack}>
-          <Text style={styles.headerIcon}>←</Text>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <StatusBar barStyle="light-content" backgroundColor={colors.primary} />
+
+      {/* Custom Alert Component */}
+      <CustomAlert
+        visible={alertState.visible}
+        type={alertState.type}
+        title={alertState.title}
+        message={alertState.message}
+        confirmText={alertState.confirmText}
+        cancelText={alertState.cancelText}
+        onConfirm={alertState.onConfirm}
+        onCancel={alertState.onCancel}
+        showCancel={alertState.showCancel}
+      />
+
+      {/* Modern Header */}
+      <View style={[styles.header, { backgroundColor: colors.primary }]}>
+        <TouchableOpacity onPress={goBack} style={styles.headerButton}>
+          <Text style={styles.backIcon}>←</Text>
         </TouchableOpacity>
-        <Image
-          source={require("../assets/cart_icon.png")}
-          style={styles.logoImage}
-        />
-        <Text style={styles.headerIcon}>⚙️</Text>
+
+        <Text style={styles.headerTitle}>My Profile</Text>
+
+        <TouchableOpacity
+          onPress={() => goToScreen?.("settings")}
+          style={styles.headerButton}
+        >
+          <Text style={styles.settingsIcon}>⚙️</Text>
+        </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.content}>
-          <Text style={styles.title}>My Profile</Text>
-
-          <View style={styles.profileBox}>
-            <TouchableOpacity
-              style={styles.profileImagePlaceholder}
-              onPress={() => setIsPicModalVisible(true)}
-            >
-              {profilePic ? (
-                <Image
-                  source={{ uri: profilePic }}
-                  style={styles.profileImage}
-                />
-              ) : (
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Profile Card */}
+        <View style={[styles.profileCard, { backgroundColor: colors.cardBg }]}>
+          <TouchableOpacity
+            style={[
+              styles.profileImageContainer,
+              { borderColor: colors.accent },
+            ]}
+            onPress={() => setIsPicModalVisible(true)}
+          >
+            {profilePic ? (
+              <Image source={{ uri: profilePic }} style={styles.profileImage} />
+            ) : (
+              <View
+                style={[
+                  styles.profilePlaceholder,
+                  { backgroundColor: colors.accent },
+                ]}
+              >
                 <Text style={styles.profileInitial}>
-                  {profileData?.username?.charAt(0)}
+                  {profileData?.username?.charAt(0)?.toUpperCase() || "U"}
                 </Text>
-              )}
-            </TouchableOpacity>
-            <Text style={styles.profileName}>{profileData?.username}</Text>
-            <TouchableOpacity onPress={() => setEditProfileVisible(true)}>
-              <Text style={styles.editButtonText}>Edit Profile</Text>
-            </TouchableOpacity>
+              </View>
+            )}
+            <View
+              style={[styles.cameraIcon, { backgroundColor: colors.primary }]}
+            >
+              <Text style={styles.cameraEmoji}>📷</Text>
+            </View>
+          </TouchableOpacity>
+
+          <Text style={[styles.profileName, { color: colors.textPrimary }]}>
+            {profileData?.username || "Username"}
+          </Text>
+          <Text style={[styles.profileEmail, { color: colors.textSecondary }]}>
+            {currentUser?.email}
+          </Text>
+
+          <TouchableOpacity
+            style={[styles.editButton, { backgroundColor: colors.primary }]}
+            onPress={() => setEditProfileVisible(true)}
+          >
+            <Text style={styles.editButtonText}>✏️ Edit Profile</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Profile Details Section */}
+        <View style={[styles.section, { backgroundColor: colors.cardBg }]}>
+          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+            Personal Information
+          </Text>
+
+          <View style={styles.infoRow}>
+            <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>
+              Full Name
+            </Text>
+            <Text style={[styles.infoValue, { color: colors.textPrimary }]}>
+              {profileData?.fullName || "Not set"}
+            </Text>
           </View>
 
-          <View style={styles.profileDetails}>
-            <Text style={styles.detailLabel}>Full Name</Text>
-            <Text style={styles.detailValue}>{profileData?.fullName}</Text>
+          <View style={styles.infoRow}>
+            <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>
+              Birthday
+            </Text>
+            <Text style={[styles.infoValue, { color: colors.textPrimary }]}>
+              {profileData?.birthday || "Not set"}
+            </Text>
+          </View>
 
-            <Text style={styles.detailLabel}>Email</Text>
-            <Text style={styles.detailValue}>{currentUser?.email}</Text>
+          <View style={styles.infoRow}>
+            <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>
+              Gender
+            </Text>
+            <Text style={[styles.infoValue, { color: colors.textPrimary }]}>
+              {profileData?.gender || "Not set"}
+            </Text>
+          </View>
 
-            <Text style={styles.detailLabel}>Birthday</Text>
-            <Text style={styles.detailValue}>{profileData?.birthday}</Text>
-
-            <Text style={styles.detailLabel}>Gender</Text>
-            <Text style={styles.detailValue}>{profileData?.gender}</Text>
-
-            <Text style={styles.detailLabel}>Phone Number</Text>
-            <Text style={styles.detailValue}>{profileData?.phoneNumber}</Text>
-
-            <Text style={styles.detailLabel}>Address</Text>
-            <Text style={styles.detailValue}>{profileData?.address}</Text>
-            <TouchableOpacity onPress={() => setEditAddressVisible(true)}>
-              <Text style={styles.editAddressText}>Edit Address</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={() => goToScreen?.("orderHistory")}
-              style={styles.logoutButton}
-            >
-              <Text style={styles.logoutText}>🧾 View Order History</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.logoutButton}
-              onPress={handleLogout}
-            >
-              <Text style={styles.logoutText}>Logout</Text>
-            </TouchableOpacity>
-            {/* Become a Seller Section */}
-            <TouchableOpacity
-              style={[styles.logoutButton, { backgroundColor: "#A67B5B" }]}
-              onPress={() => setSellerRulesVisible(true)}
-            >
-              <Text style={styles.logoutText}>Want to Become a Seller?</Text>
-            </TouchableOpacity>
-
-            {/* Seller Rules Modal */}
-            <Modal
-              visible={sellerRulesVisible}
-              transparent
-              animationType="fade"
-              onRequestClose={() => setSellerRulesVisible(false)}
-            >
-              <View style={styles.modalOverlay}>
-                <View style={styles.modalBox}>
-                  <Text style={styles.modalTitle}>
-                    Seller Rules & Guidelines
-                  </Text>
-                  <Text style={styles.modalText}>
-                    1. Only upload original furniture designs or items you own.
-                  </Text>
-                  <Text style={styles.modalText}>
-                    2. Uploaded items must not contain prohibited content.
-                  </Text>
-                  <Text style={styles.modalText}>
-                    3. All listings will be reviewed by admin before approval.
-                  </Text>
-                  <Text style={styles.modalText}>
-                    4. Misuse of the seller system can lead to account
-                    suspension.
-                  </Text>
-                  <Text style={styles.modalText}>
-                    5. Follow ethical selling practices and ensure accuracy in
-                    pricing.
-                  </Text>
-
-                  <View style={styles.modalButtons}>
-                    <TouchableOpacity
-                      style={styles.modalButtonCancel}
-                      onPress={() => setSellerRulesVisible(false)}
-                    >
-                      <Text style={styles.modalCancelText}>Cancel</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.modalButton}
-                      onPress={() => {
-                        setSellerRulesVisible(false);
-                        goToScreen?.("SellerPart"); // navigate to SellerPart.tsx
-                      }}
-                    >
-                      <Text style={styles.modalButtonText}>
-                        Agree & Continue
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </View>
-            </Modal>
+          <View style={styles.infoRow}>
+            <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>
+              Phone Number
+            </Text>
+            <Text style={[styles.infoValue, { color: colors.textPrimary }]}>
+              {profileData?.phoneNumber || "Not set"}
+            </Text>
           </View>
         </View>
-      </ScrollView>
 
-      {/* ---------------- Modals ---------------- */}
+        {/* Action Buttons */}
+        <View style={styles.actionsContainer}>
+          <TouchableOpacity
+            style={[styles.logoutButton, { backgroundColor: colors.error }]}
+            onPress={handleLogout}
+          >
+            <Text style={styles.logoutIcon}>🚪</Text>
+            <Text style={styles.logoutText}>Logout</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={{ height: 40 }} />
+      </ScrollView>
 
       {/* Login Modal */}
       <Modal
         visible={loginModalVisible}
         transparent
-        animationType="none" // disable default pop-up animation
+        animationType="fade"
         onRequestClose={() => setLoginModalVisible(false)}
       >
-        <Animated.View
-          style={[
-            styles.modalOverlay,
-            {
-              opacity: loginFadeAnim,
-            },
-          ]}
-        >
-          <Animated.View
-            style={[
-              styles.loginModalBox,
-              {
-                transform: [{ scale: loginScaleAnim }],
-              },
-            ]}
-          >
-            <Text style={styles.modalTitle}>You are not Logged in.</Text>
-            <Text style={styles.modalText}>
-              Do you want to Login to your Account or Create an Account?
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalBox, { backgroundColor: colors.cardBg }]}>
+            <View
+              style={[styles.modalIconCircle, { backgroundColor: "#E3F2FD" }]}
+            >
+              <Text style={styles.modalIconText}>🔒</Text>
+            </View>
+
+            <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>
+              Not Logged In
+            </Text>
+            <Text
+              style={[styles.modalMessage, { color: colors.textSecondary }]}
+            >
+              You need to login to access your profile. Would you like to login
+              or create an account?
             </Text>
 
             <View style={styles.modalButtons}>
               <TouchableOpacity
                 onPress={handleLoginNo}
-                style={styles.modalButtonCancel}
+                style={[
+                  styles.modalButtonSecondary,
+                  { borderColor: colors.border },
+                ]}
               >
-                <Text style={styles.modalCancelText}>No</Text>
+                <Text
+                  style={[
+                    styles.modalButtonSecondaryText,
+                    { color: colors.textPrimary },
+                  ]}
+                >
+                  Maybe Later
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={handleLogin}
-                style={styles.modalButton}
+                style={[
+                  styles.modalButtonPrimary,
+                  { backgroundColor: colors.primary },
+                ]}
               >
-                <Text style={styles.modalButtonText}>Yes</Text>
+                <Text style={styles.modalButtonPrimaryText}>Login</Text>
               </TouchableOpacity>
             </View>
-          </Animated.View>
-        </Animated.View>
+          </View>
+        </View>
       </Modal>
 
       {/* Profile Pic Modal */}
@@ -421,25 +465,49 @@ const Profile: React.FC<ProfileProps> = ({ goToScreen, goBack }) => {
         onRequestClose={() => setIsPicModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>Choose Profile Picture</Text>
+          <View
+            style={[styles.picModalBox, { backgroundColor: colors.cardBg }]}
+          >
+            <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>
+              Change Profile Picture
+            </Text>
+
             <TouchableOpacity
-              style={styles.uploadPicButton}
+              style={[styles.picOption, { borderColor: colors.border }]}
               onPress={chooseProfilePic}
             >
-              <Text style={styles.uploadPicText}>Upload Pic</Text>
+              <Text style={styles.picOptionIcon}>🖼️</Text>
+              <Text
+                style={[styles.picOptionText, { color: colors.textPrimary }]}
+              >
+                Choose from Gallery
+              </Text>
             </TouchableOpacity>
+
             <TouchableOpacity
-              style={styles.uploadPicButton}
+              style={[styles.picOption, { borderColor: colors.border }]}
               onPress={takeProfilePic}
             >
-              <Text style={styles.uploadPicText}>Take Photo</Text>
+              <Text style={styles.picOptionIcon}>📸</Text>
+              <Text
+                style={[styles.picOptionText, { color: colors.textPrimary }]}
+              >
+                Take Photo
+              </Text>
             </TouchableOpacity>
+
             <TouchableOpacity
+              style={[styles.cancelButton, { borderColor: colors.border }]}
               onPress={() => setIsPicModalVisible(false)}
-              style={styles.modalButtonCancel}
             >
-              <Text style={styles.modalCancelText}>Cancel</Text>
+              <Text
+                style={[
+                  styles.cancelButtonText,
+                  { color: colors.textSecondary },
+                ]}
+              >
+                Cancel
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -449,376 +517,693 @@ const Profile: React.FC<ProfileProps> = ({ goToScreen, goBack }) => {
       <Modal
         visible={editProfileVisible}
         transparent
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => setEditProfileVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <Animated.View
-            style={[
-              styles.cardModalBox,
-              {
-                opacity: fadeAnim,
-                transform: [{ translateY: slideAnim }],
-              },
-            ]}
+          <View
+            style={[styles.formModalBox, { backgroundColor: colors.cardBg }]}
           >
-            <ScrollView contentContainerStyle={{ padding: 10 }}>
-              <Text style={styles.modalTitle}>Edit Profile</Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text
+                style={[styles.formModalTitle, { color: colors.textPrimary }]}
+              >
+                Edit Profile
+              </Text>
 
-              <Text style={styles.label}>Username</Text>
+              <Text
+                style={[styles.inputLabel, { color: colors.textSecondary }]}
+              >
+                Username
+              </Text>
               <TextInput
-                style={styles.input}
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: colors.background,
+                    borderColor: colors.border,
+                    color: colors.textPrimary,
+                  },
+                ]}
                 placeholder="Enter username"
+                placeholderTextColor={colors.textSecondary}
                 value={profileData?.username}
                 onChangeText={(text) =>
                   setProfileData({ ...profileData, username: text })
                 }
-                placeholderTextColor="#9E9E9E"
               />
 
-              <Text style={styles.label}>Full Name</Text>
+              <Text
+                style={[styles.inputLabel, { color: colors.textSecondary }]}
+              >
+                Full Name
+              </Text>
               <TextInput
-                style={styles.input}
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: colors.background,
+                    borderColor: colors.border,
+                    color: colors.textPrimary,
+                  },
+                ]}
                 placeholder="Enter full name"
+                placeholderTextColor={colors.textSecondary}
                 value={profileData?.fullName}
                 onChangeText={(text) =>
                   setProfileData({ ...profileData, fullName: text })
                 }
-                placeholderTextColor="#9E9E9E"
               />
 
               <View style={styles.row}>
-                <View style={styles.halfBox}>
-                  <Text style={styles.label}>Birthday</Text>
+                <View style={styles.halfWidth}>
+                  <Text
+                    style={[styles.inputLabel, { color: colors.textSecondary }]}
+                  >
+                    Birthday
+                  </Text>
                   <TextInput
-                    style={styles.input}
+                    style={[
+                      styles.input,
+                      {
+                        backgroundColor: colors.background,
+                        borderColor: colors.border,
+                        color: colors.textPrimary,
+                      },
+                    ]}
                     placeholder="mm/dd/yyyy"
+                    placeholderTextColor={colors.textSecondary}
                     value={profileData?.birthday}
                     onChangeText={(text) =>
                       setProfileData({ ...profileData, birthday: text })
                     }
-                    placeholderTextColor="#9E9E9E"
                   />
                 </View>
-                <View style={styles.halfBox}>
-                  <Text style={styles.label}>Gender</Text>
+
+                <View style={styles.halfWidth}>
+                  <Text
+                    style={[styles.inputLabel, { color: colors.textSecondary }]}
+                  >
+                    Gender
+                  </Text>
                   <TouchableOpacity
-                    style={styles.input}
+                    style={[
+                      styles.input,
+                      styles.dropdownTrigger,
+                      {
+                        backgroundColor: colors.background,
+                        borderColor: colors.border,
+                      },
+                    ]}
                     onPress={() => setShowDropdown(!showDropdown)}
                   >
                     <Text
                       style={{
-                        color: profileData?.gender ? "#3E2E22" : "#9E9E9E",
+                        color: profileData?.gender
+                          ? colors.textPrimary
+                          : colors.textSecondary,
                       }}
                     >
-                      {profileData?.gender ? profileData.gender : "Select"}
+                      {profileData?.gender || "Select"}
                     </Text>
+                    <Text style={styles.dropdownArrow}>▼</Text>
                   </TouchableOpacity>
+
                   {showDropdown && (
-                    <View style={styles.dropdown}>
+                    <View
+                      style={[
+                        styles.dropdown,
+                        {
+                          backgroundColor: colors.cardBg,
+                          borderColor: colors.border,
+                        },
+                      ]}
+                    >
                       <TouchableOpacity
+                        style={styles.dropdownItem}
                         onPress={() => {
                           setProfileData({ ...profileData, gender: "Male" });
                           setShowDropdown(false);
                         }}
                       >
-                        <Text style={styles.dropdownItem}>Male</Text>
+                        <Text
+                          style={[
+                            styles.dropdownItemText,
+                            { color: colors.textPrimary },
+                          ]}
+                        >
+                          Male
+                        </Text>
                       </TouchableOpacity>
+                      <View
+                        style={[
+                          styles.dropdownDivider,
+                          { backgroundColor: colors.border },
+                        ]}
+                      />
                       <TouchableOpacity
+                        style={styles.dropdownItem}
                         onPress={() => {
                           setProfileData({ ...profileData, gender: "Female" });
                           setShowDropdown(false);
                         }}
                       >
-                        <Text style={styles.dropdownItem}>Female</Text>
+                        <Text
+                          style={[
+                            styles.dropdownItemText,
+                            { color: colors.textPrimary },
+                          ]}
+                        >
+                          Female
+                        </Text>
                       </TouchableOpacity>
                     </View>
                   )}
                 </View>
               </View>
 
-              <Text style={styles.label}>Phone Number</Text>
+              <Text
+                style={[styles.inputLabel, { color: colors.textSecondary }]}
+              >
+                Phone Number
+              </Text>
               <TextInput
-                style={styles.input}
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: colors.background,
+                    borderColor: colors.border,
+                    color: colors.textPrimary,
+                  },
+                ]}
                 placeholder="Enter phone number"
+                placeholderTextColor={colors.textSecondary}
                 value={profileData?.phoneNumber}
                 onChangeText={(text) =>
                   setProfileData({ ...profileData, phoneNumber: text })
                 }
-                placeholderTextColor="#9E9E9E"
                 keyboardType="phone-pad"
               />
 
-              <View style={styles.modalButtons}>
+              <View style={styles.formModalButtons}>
                 <TouchableOpacity
+                  style={[
+                    styles.formCancelButton,
+                    { borderColor: colors.border },
+                  ]}
                   onPress={() => setEditProfileVisible(false)}
-                  style={styles.modalButtonCancel}
                 >
-                  <Text style={styles.modalCancelText}>Cancel</Text>
+                  <Text
+                    style={[
+                      styles.formCancelButtonText,
+                      { color: colors.textPrimary },
+                    ]}
+                  >
+                    Cancel
+                  </Text>
                 </TouchableOpacity>
+
                 <TouchableOpacity
+                  style={[
+                    styles.formSaveButton,
+                    { backgroundColor: colors.primary },
+                  ]}
                   onPress={handleUpdateProfile}
-                  style={styles.modalButton}
                 >
-                  <Text style={styles.modalButtonText}>Update</Text>
+                  <Text style={styles.formSaveButtonText}>Save Changes</Text>
                 </TouchableOpacity>
               </View>
             </ScrollView>
-          </Animated.View>
+          </View>
         </View>
       </Modal>
 
       {/* Edit Address Modal */}
-      <Modal
-        visible={editAddressVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setEditAddressVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <Animated.View
-            style={[
-              styles.cardModalBox,
-              {
-                opacity: fadeAnim,
-                transform: [{ translateY: slideAnim }],
-              },
-            ]}
-          >
-            <Text style={styles.modalTitle}>Edit Address</Text>
-            <Text style={styles.label}>Address</Text>
-            <TextInput
-              style={[styles.input, styles.addressInput]}
-              placeholder="Enter address"
-              value={profileData?.address}
-              onChangeText={(text) =>
-                setProfileData({ ...profileData, address: text })
-              }
-              placeholderTextColor="#9E9E9E"
-              multiline
-              numberOfLines={4}
-            />
 
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                onPress={() => setEditAddressVisible(false)}
-                style={styles.modalButtonCancel}
-              >
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={handleUpdateAddress}
-                style={styles.modalButton}
-              >
-                <Text style={styles.modalButtonText}>Update</Text>
-              </TouchableOpacity>
-            </View>
-          </Animated.View>
-        </View>
-      </Modal>
+      {/* Seller Rules Modal */}
     </View>
   );
 };
 
-export default Profile;
-
-// -------------------- Styles --------------------
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#d9c5b2" },
+  container: {
+    flex: 1,
+  },
   header: {
-    backgroundColor: "#3E2E22",
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    paddingTop: 20,
   },
-  headerIcon: { color: "white", fontSize: 24 },
-  logoImage: { width: 40, height: 40, marginRight: 5 },
-  content: { flex: 1, padding: 20 },
-  title: {
-    fontSize: 22,
-    fontWeight: "600",
-    color: "#3E2E22",
-    marginBottom: 20,
-  },
-  profileBox: { alignItems: "center", marginBottom: 20 },
-  profileImagePlaceholder: {
-    width: 100,
-    height: 100,
-    backgroundColor: "#D6C7B0",
-    borderRadius: 50,
-    justifyContent: "center",
+  headerButton: {
+    width: 36,
+    height: 36,
     alignItems: "center",
+    justifyContent: "center",
   },
-  profileImage: { width: "100%", height: "100%", borderRadius: 50 },
-  profileInitial: { fontSize: 40, color: "#fff" },
-  profileName: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#3E2E22",
-    marginTop: 10,
+  backIcon: {
+    fontSize: 24,
+    color: "#FFFFFF",
   },
-  editButtonText: { fontSize: 16, color: "#A67B5B" },
-  profileDetails: { marginTop: 20 },
-  detailLabel: { fontSize: 16, fontWeight: "bold", color: "#3E2E22" },
-  detailValue: { fontSize: 14, marginBottom: 10, color: "#6B4F3B" },
-  editAddressText: { fontSize: 16, color: "#A67B5B" },
-  logoutButton: {
-    marginTop: 20,
-    padding: 10,
-    backgroundColor: "#6B4F3B",
-    borderRadius: 8,
-  },
-  logoutText: { color: "#fff", fontSize: 16, textAlign: "center" },
-  scrollContent: { flexGrow: 1, paddingBottom: 40 },
-  modalBox: {
-    width: "90%",
-    backgroundColor: "#f5ece2",
-    padding: 20,
-    borderRadius: 15,
-    elevation: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-  },
-  modalTitle: {
+  headerTitle: {
     fontSize: 20,
     fontWeight: "700",
-    marginBottom: 15,
-    color: "#3E2E22",
+    color: "#FFFFFF",
+    flex: 1,
     textAlign: "center",
   },
-  uploadPicButton: {
-    padding: 12,
-    backgroundColor: "#b08a6c",
-    borderRadius: 8,
-    marginTop: 10,
+  settingsIcon: {
+    fontSize: 20,
   },
-  uploadPicText: { textAlign: "center", color: "#fff", fontWeight: "600" },
-
-  modalButtons: {
+  scrollContent: {
+    padding: 16,
+    paddingBottom: 40,
+  },
+  profileCard: {
+    borderRadius: 16,
+    padding: 24,
+    alignItems: "center",
+    marginBottom: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  profileImageContainer: {
+    position: "relative",
+    marginBottom: 16,
+    borderWidth: 3,
+    borderRadius: 60,
+    padding: 4,
+  },
+  profileImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+  },
+  profilePlaceholder: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  profileInitial: {
+    fontSize: 40,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  cameraIcon: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 3,
+    borderColor: "#FFFFFF",
+  },
+  cameraEmoji: {
+    fontSize: 16,
+  },
+  profileName: {
+    fontSize: 24,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  profileEmail: {
+    fontSize: 14,
+    marginBottom: 16,
+  },
+  editButton: {
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: 20,
+    marginTop: 8,
+  },
+  editButtonText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  section: {
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    width: "100%",
-    marginTop: 20,
+    marginBottom: 16,
   },
-
-  modalButton: {
-    flex: 1,
-    backgroundColor: "rgba(107, 79, 59, 0.9)", // soft brown, slightly transparent
-    paddingVertical: 12,
-    borderRadius: 10,
-    marginHorizontal: 5,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.3)",
-  },
-
-  modalButtonCancel: {
-    flex: 1,
-    backgroundColor: "rgba(107, 79, 59, 0.5)", // same tone but lighter transparency
-    paddingVertical: 12,
-    borderRadius: 10,
-    marginHorizontal: 5,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.3)",
-  },
-
-  modalButtonText: {
-    color: "#fff",
-    textAlign: "center",
+  sectionTitle: {
+    fontSize: 18,
     fontWeight: "700",
-    fontSize: 16,
   },
-
-  modalCancelText: {
-    color: "#fff",
-    textAlign: "center",
-    fontWeight: "700",
-    fontSize: 16,
+  editLink: {
+    fontSize: 14,
+    fontWeight: "600",
   },
-  modalText: {
-    fontSize: 16,
-    color: "#6B4F3B",
-    marginBottom: 5,
-    textAlign: "center",
+  infoRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F0F0F0",
   },
-  input: {
+  infoLabel: {
+    fontSize: 14,
+  },
+  infoValue: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  addressText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  actionsContainer: {
+    gap: 12,
+  },
+  actionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#b08a6c",
-    padding: 12,
-    marginBottom: 12,
-    borderRadius: 8,
-    backgroundColor: "#fff",
-    fontSize: 15,
-    color: "#3E2E22",
-    width: "100%",
   },
-  addressInput: { height: 100, textAlignVertical: "top" },
-  label: {
-    alignSelf: "flex-start",
+  actionIcon: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  actionButtonText: {
+    flex: 1,
     fontSize: 16,
     fontWeight: "600",
-    color: "#6B513E",
-    marginBottom: 5,
   },
-  row: { flexDirection: "row", justifyContent: "space-between", width: "100%" },
-  halfBox: { flex: 1, marginRight: 6 },
-  dropdown: {
-    position: "absolute",
-    top: 80,
-    left: 0,
-    right: 0,
-    backgroundColor: "#fff",
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: "#b08a6c",
-    elevation: 5,
-    zIndex: 10,
+  chevron: {
+    fontSize: 24,
+    color: "#CCCCCC",
   },
-  dropdownItem: { padding: 10, fontSize: 15, color: "#3E2E22" },
-  modalScrollContainer: {
-    flexGrow: 1,
-    justifyContent: "center",
+  logoutButton: {
+    flexDirection: "row",
     alignItems: "center",
-    padding: 20,
+    justifyContent: "center",
+    padding: 16,
+    borderRadius: 12,
+    marginTop: 8,
   },
-  cardModalBox: {
-    width: "85%",
-    backgroundColor: "#fff",
-    borderRadius: 15,
-    padding: 20,
-    elevation: 10,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-    alignSelf: "center",
+  logoutIcon: {
+    fontSize: 20,
+    marginRight: 8,
+  },
+  logoutText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
   },
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.6)",
     justifyContent: "center",
     alignItems: "center",
+    padding: 20,
   },
-  loginModalBox: {
-    width: "85%",
-    backgroundColor: "rgba(245, 236, 226, 0.95)", // slightly transparent cream
-    borderRadius: 18,
-    padding: 25,
-    elevation: 10,
+  modalBox: {
+    width: "100%",
+    maxWidth: 360,
+    borderRadius: 20,
+    padding: 24,
+    alignItems: "center",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.3,
-    shadowRadius: 5,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  modalIconCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 20,
+  },
+  modalIconText: {
+    fontSize: 40,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  modalMessage: {
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: "center",
+    marginBottom: 24,
+  },
+  modalButtons: {
+    flexDirection: "row",
+    width: "100%",
+    gap: 12,
+  },
+  modalButtonPrimary: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  modalButtonPrimaryText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  modalButtonSecondary: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.3)",
+  },
+  modalButtonSecondaryText: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  picModalBox: {
+    width: "100%",
+    maxWidth: 360,
+    borderRadius: 20,
+    padding: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  picOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 12,
+  },
+  picOptionIcon: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  picOptionText: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  cancelButton: {
+    width: "100%",
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+    borderWidth: 1,
+    marginTop: 8,
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  formModalBox: {
+    width: "100%",
+    maxWidth: 400,
+    maxHeight: "85%",
+    borderRadius: 20,
+    padding: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  formModalTitle: {
+    fontSize: 24,
+    fontWeight: "700",
+    marginBottom: 20,
+    textAlign: "center",
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 8,
+  },
+  input: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 15,
+    marginBottom: 16,
+  },
+  textArea: {
+    height: 100,
+    textAlignVertical: "top",
+  },
+  row: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  halfWidth: {
+    flex: 1,
+  },
+  dropdownTrigger: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  dropdownArrow: {
+    fontSize: 10,
+    color: "#999999",
+  },
+  dropdown: {
+    position: "absolute",
+    top: 75,
+    left: 0,
+    right: 0,
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: "hidden",
+    zIndex: 1000,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  dropdownItem: {
+    padding: 14,
+  },
+  dropdownItemText: {
+    fontSize: 15,
+  },
+  dropdownDivider: {
+    height: 1,
+  },
+  formModalButtons: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 8,
+  },
+  formCancelButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+    borderWidth: 1,
+  },
+  formCancelButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  formSaveButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  formSaveButtonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  rulesModalBox: {
+    width: "100%",
+    maxWidth: 400,
+    maxHeight: "80%",
+    borderRadius: 20,
+    padding: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  ruleItem: {
+    flexDirection: "row",
+    paddingLeft: 16,
+    paddingRight: 8,
+    paddingVertical: 12,
+    marginBottom: 12,
+    borderLeftWidth: 4,
+    backgroundColor: "#F8F8F8",
+    borderRadius: 8,
+  },
+  ruleNumber: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#D4A574",
+    marginRight: 12,
+    width: 24,
+  },
+  ruleText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  rulesModalButtons: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 24,
+  },
+  rulesDeclineButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+    borderWidth: 1,
+  },
+  rulesDeclineText: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  rulesAgreeButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  rulesAgreeText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
   },
 });
+
+export default Profile;
